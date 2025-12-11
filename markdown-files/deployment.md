@@ -119,7 +119,7 @@ Update `config/config.json` met endpoint URL en API key uit deployment output.
 
 ## ✅ Deployment Checklist
 
-**Local (Pi)**
+### Local (Pi)
 
 - [ ] QuestDB container running
 - [ ] Virtual environment active
@@ -128,10 +128,10 @@ Update `config/config.json` met endpoint URL en API key uit deployment output.
 - [ ] Main app running (`python3 src/main.py`)
 - [ ] Dashboard accessible (port 8501)
 
-**Azure**
+### Azure
 
 - [ ] IoT Hub device registered
-- [ ] Azure Function deployed ✅ 
+- [ ] Azure Function deployed ✅
 - [ ] MongoDB Atlas active
 
 **Verify:**
@@ -153,7 +153,7 @@ curl "http://localhost:9000/exec?query=SELECT%20count(*)%20FROM%20sensor_data"
 
 ## 📊 Assignment Status
 
-**Vereisten: 11/11 ✅**
+### Vereisten: 11/11 ✅
 
 ✅ Sensor data (CPU, memory, disk, network) | ✅ Local storage (QuestDB) | ✅ Cloud telemetry (IoT Hub)  
 ✅ Cloud storage (Blob + MongoDB) | ✅ Local AI (Isolation Forest) | ✅ Cloud AI (Azure ML ready)  

@@ -7,7 +7,7 @@
 
 ---
 
-# 📘 1. Inleiding
+## 📘 1. Inleiding
 
 Dit project ontwikkelt een **real-time netwerk- en systeemmonitoringplatform** met een **Raspberry Pi** als IoT-device en een moderne **cloud-gebaseerde analytics pipeline** op **Azure**.
 
@@ -23,7 +23,7 @@ Het platform is ontworpen voor:
 
 ---
 
-# 📡 2. Architectuur – High-Level Overzicht
+## 📡 2. Architectuur – High-Level Overzicht
 
   ┌──────────────────┐
   │ Raspberry Pi      │
@@ -55,9 +55,9 @@ Het platform is ontworpen voor:
 
 ---
 
-# ⚙️ 3. Componentenoverzicht
+## ⚙️ 3. Componentenoverzicht
 
-## 3.1 Raspberry Pi (Edge Device)
+### 3.1 Raspberry Pi (Edge Device)
 
 | Component                 | Beschrijving |
 |--------------------------|--------------|
@@ -71,16 +71,16 @@ Het platform is ontworpen voor:
 
 ---
 
-## 3.2 Cloud Componenten
+#### 3.2 Cloud Componenten
 
-### Azure IoT Hub
+##### Azure IoT Hub
 
 - Device-to-Cloud telemetrie
 - Cloud-to-Device commands
 - Direct Methods
 - Device Twin configuratiebeheer
 
-### Azure Functions
+##### Azure Functions
 
 - Trigger: IoT Hub events
 - Taken:
@@ -89,13 +89,13 @@ Het platform is ontworpen voor:
   - Anomaly detection
   - Opslaan in QuestDB / Blob / MongoDB
 
-### Azure ML (Cloud AI)
+##### Azure ML (Cloud AI)
 
 - Managed endpoint voor anomaly inferencing
 - Isolation Forest model (scikit-learn 1.8.0)
 - Key-based authentication
 
-### Datastores
+##### Datastores
 
 | Service | Functie |
 |---------|---------|
@@ -105,11 +105,11 @@ Het platform is ontworpen voor:
 
 ---
 
-# 🤖 4. AI Architectuur
+## 🤖 4. AI Architectuur
 
 Het systeem gebruikt een **Unified AI Module** (`ai_models.py`) met drie componenten.
 
-## 4.1 Model Training
+### 4.1 Model Training
 
 **Functie:** `train_and_save_models()`
 
@@ -126,7 +126,7 @@ python3 src/ai_models.py
 
 ---
 
-## 4.2 Edge AI – Local Isolation Forest
+### 4.2 Edge AI – Local Isolation Forest
 
 **Class:** `AnomalyDetector`
 
@@ -151,7 +151,7 @@ python3 src/ai_models.py
 
 ---
 
-## 4.2 Threshold Fallback Detector
+### 4.2 Threshold Fallback Detector
 
 **Class:** `SimpleThresholdDetector`
 
@@ -169,7 +169,7 @@ Wordt gebruikt wanneer:
 
 ---
 
-## 4.3 Cloud AI – Azure ML Endpoint
+### 4.3 Cloud AI – Azure ML Endpoint
 
 **Class:** `CloudAIService` met `AzureMLClient`
 
@@ -202,7 +202,7 @@ Geavanceerde anomaly analysis via REST API.
 
 ---
 
-# 🗄️ 5. Datastromen
+## 🗄️ 5. Datastromen
 
 Pi → IoT Hub → Azure Function → QuestDB / Blob / MongoDB
 Pi → Azure ML (AI inferencing)
@@ -210,9 +210,9 @@ Pi → Streamlit Dashboard
 
 ---
 
-# 🌐 6. Azure Integratie
+## 🌐 6. Azure Integratie
 
-## 6.1 IoT Hub
+### 6.1 IoT Hub
 
 **Hub:**
 HowestTICFAILovepreetHub
@@ -234,7 +234,7 @@ rapsberry-pi-monitor
 
 ---
 
-## 6.2 Azure Functions
+### 6.2 Azure Functions
 
 **Function App:**
 pi-monitor-functions
@@ -262,7 +262,7 @@ QUESTDB_PORT
 
 ---
 
-## 6.3 QuestDB
+### 6.3 QuestDB
 
 **Docker container met auto-restart:**
 
@@ -308,7 +308,7 @@ CREATE TABLE sensor_data (
 
 ---
 
-## 6.4 MongoDB Atlas
+### 6.4 MongoDB Atlas
 
 Gebruikt voor:
 
@@ -318,7 +318,7 @@ Gebruikt voor:
 
 ---
 
-# 📊 7. Streamlit Dashboard
+## 📊 7. Streamlit Dashboard
 
 **Functies:**
 
@@ -338,9 +338,9 @@ streamlit run dashboard/dashboard.py --server.address 0.0.0.0
 
 ---
 
-# 🛠️ 8. Projectstructuur & Deployment
+## 🛠️ 8. Projectstructuur & Deployment
 
-## 8.1 Deployment Scripts
+### 8.1 Deployment Scripts
 
 **Start alle services:**
 
@@ -349,6 +349,7 @@ streamlit run dashboard/dashboard.py --server.address 0.0.0.0
 ```
 
 Functionaliteit:
+
 - ✓ Start Docker service
 - ✓ Start QuestDB container (met auto-restart)
 - ✓ Start Streamlit dashboard (achtergrond)
@@ -363,18 +364,20 @@ Functionaliteit:
 ```
 
 Functionaliteit:
+
 - ✓ Stop main.py gracefully
 - ✓ Stop Streamlit dashboard
 - ✓ Stop QuestDB container
 - ✓ Verificatie van shutdown
 
 **Logs:**
+
 - Dashboard: `logs/dashboard.log`
 - Main App: `logs/main.log`
 
 ---
 
-## 8.1.1 Tailscale VPN Netwerk
+### 8.1.1 Tailscale VPN Netwerk
 
 **Geïnstalleerd op 3 devices:**
 
@@ -392,19 +395,19 @@ Functionaliteit:
 **Toegang via Tailscale:**
 
 ```bash
-# Ping Raspberry Pi via Tailscale
+## Ping Raspberry Pi via Tailscale
 ping raspberry-pi-tailscale-name
 
-# SSH via Tailscale
+## SSH via Tailscale
 ssh admin@raspberry-pi-tailscale-name
 
-# Dashboard toegang
+## Dashboard toegang
 http://raspberry-pi-tailscale-name:8501
 ```
 
 ---
 
-## 8.2 Projectstructuur
+### 8.2 Projectstructuur
 
 ```pgsql
 piNetMon/
@@ -412,38 +415,38 @@ piNetMon/
 │   ├── config.json
 │   └── config.json.example
 ├── data/
-│   └── questdb/              # QuestDB Docker volume
-├── logs/                      # Application logs
+│   └── questdb/              ## QuestDB Docker volume
+├── logs/                      ## Application logs
 │   ├── main.log
 │   └── dashboard.log
 ├── models/
-│   ├── model.pkl             # Trained Isolation Forest
-│   └── scaler.pkl            # StandardScaler for features
+│   ├── model.pkl             ## Trained Isolation Forest
+│   └── scaler.pkl            ## StandardScaler for features
 ├── src/
-│   ├── main.py               # Main orchestrator
-│   ├── sensor_collector.py   # System metrics collection
-│   ├── questdb_storage.py    # QuestDB time-series storage
+│   ├── main.py               ## Main orchestrator
+│   ├── sensor_collector.py   ## System metrics collection
+│   ├── questdb_storage.py    ## QuestDB time-series storage
 │   ├── mongodb_storage.py    # MongoDB Atlas integration
-│   ├── ai_models.py          # Unified AI module (training + local + cloud)
-│   └── cloud_integration.py  # Azure IoT Hub client
+│   ├── ai_models.py          ## Unified AI module (training + local + cloud)
+│   └── cloud_integration.py  ## Azure IoT Hub client
 ├── dashboard/
-│   └── dashboard.py          # Streamlit visualization
+│   └── dashboard.py          ## Streamlit visualization
 ├── azure-functions/
 │   └── IoTHubTrigger/
 │       ├── __init__.py
 │       └── function.json
 ├── azure-ml/
-│   ├── deploy_to_azure.py    # Deploy model to Azure ML
-│   └── score.py              # Azure ML inference script
-├── deploy_pi.sh              # Start all services after reboot
-├── stop_pi.sh                # Stop all services
+│   ├── deploy_to_azure.py    ## Deploy model to Azure ML
+│   └── score.py              ## Azure ML inference script
+├── deploy_pi.sh              ## Start all services after reboot
+├── stop_pi.sh                ## Stop all services
 ├── requirements.txt
 └── README.md
 ```
 
 ---
 
-# 📄 9. Documentatieversie
+## 📄 9. Documentatieversie
 
 - Connection strings niet committen
 - Gebruik .env of Azure Key Vault
@@ -452,7 +455,7 @@ piNetMon/
 
 ---
 
-# 🎯 10. Checklist Eindopdracht
+## 🎯 10. Checklist Eindopdracht
 
 **Minimumvereisten:**
 
@@ -482,7 +485,7 @@ piNetMon/
 
 ---
 
-# 🧾 11. Conclusie
+## 🧾 11. Conclusie
 
 Dit platform combineert edge computing, cloud scalability, real-time analytics, en machine learning in één geïntegreerd IoT-systeem.
 
@@ -505,7 +508,7 @@ Dit platform combineert edge computing, cloud scalability, real-time analytics, 
 
 ---
 
-## Health Score Berekening
+### Health Score Berekening
 
 ```python
 score = 100
