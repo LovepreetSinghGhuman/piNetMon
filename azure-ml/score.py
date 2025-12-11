@@ -17,34 +17,17 @@ def init():
         model_dir = os.getenv('AZUREML_MODEL_DIR', '.')
         print(f"Model directory: {model_dir}")
         
-        # List all files recursively to debug path structure
-        for root, dirs, files in os.walk(model_dir):
-            print(f"Directory: {root}")
-            for file in files:
-                print(f"  File: {file}")
+        # Files are directly in model_dir (flattened structure)
+        model_path = os.path.join(model_dir, 'model.pkl')
+        scaler_path = os.path.join(model_dir, 'scaler.pkl')
         
-        # Try multiple possible paths
-        possible_paths = [
-            (os.path.join(model_dir, 'pi-anomaly-detector', 'model.pkl'),
-             os.path.join(model_dir, 'pi-anomaly-detector', 'scaler.pkl')),
-            (os.path.join(model_dir, 'pi-anomaly-detector', 'models', 'model.pkl'),
-             os.path.join(model_dir, 'pi-anomaly-detector', 'models', 'scaler.pkl')),
-            (os.path.join(model_dir, 'model.pkl'),
-             os.path.join(model_dir, 'scaler.pkl'))
-        ]
+        print(f"Looking for model at: {model_path}")
+        print(f"Looking for scaler at: {scaler_path}")
         
-        model_path = None
-        scaler_path = None
-        
-        for m_path, s_path in possible_paths:
-            if os.path.exists(m_path) and os.path.exists(s_path):
-                model_path = m_path
-                scaler_path = s_path
-                print(f"Found model at: {model_path}")
-                break
-        
-        if not model_path:
-            raise FileNotFoundError(f"Could not find model files in {model_dir}")
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+        if not os.path.exists(scaler_path):
+            raise FileNotFoundError(f"Scaler file not found: {scaler_path}")
         
         print(f"Loading model from: {model_path}")
         with open(model_path, 'rb') as f:

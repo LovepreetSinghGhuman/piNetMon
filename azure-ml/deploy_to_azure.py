@@ -2,7 +2,9 @@
 Deploy model to Azure ML
 Run this script after creating the ML workspace
 """
-
+import os
+import shutil
+import tempfile
 from azure.ai.ml import MLClient
 from azure.ai.ml.entities import (
     ManagedOnlineEndpoint,
@@ -24,17 +26,26 @@ ml_client = MLClient(credential, subscription_id, resource_group, workspace_name
 
 print("Connected to Azure ML workspace")
 
-# Register the model
+# Register the model with flattened structure
 print("Registering model...")
-# Upload models directory and azure-ml code
-model = Model(
-    path="models",
-    type="custom_model",
-    name="pi-anomaly-detector",
-    description="Anomaly detection model for Raspberry Pi monitoring"
-)
-registered_model = ml_client.models.create_or_update(model)
-print(f"Model registered: {registered_model.name} version {registered_model.version}")
+# Create temp directory and copy pkl files directly (flatten structure)
+temp_dir = tempfile.mkdtemp()
+try:
+    shutil.copy("models/model.pkl", os.path.join(temp_dir, "model.pkl"))
+    shutil.copy("models/scaler.pkl", os.path.join(temp_dir, "scaler.pkl"))
+    print(f"Created flattened model directory at: {temp_dir}")
+    
+    model = Model(
+        path=temp_dir,
+        type="custom_model",
+        name="pi-anomaly-detector",
+        description="Anomaly detection model for Raspberry Pi monitoring"
+    )
+    registered_model = ml_client.models.create_or_update(model)
+    print(f"Model registered: {registered_model.name} version {registered_model.version}")
+finally:
+    # Cleanup temp directory
+    shutil.rmtree(temp_dir, ignore_errors=True)
 
 # Create endpoint
 print("Creating endpoint...")
