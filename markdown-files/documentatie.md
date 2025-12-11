@@ -25,7 +25,6 @@ Het platform is ontworpen voor:
 
 # 📡 2. Architectuur – High-Level Overzicht
 
-
   ┌──────────────────┐
   │ Raspberry Pi      │
   │ (IoT Device)      │
@@ -53,7 +52,6 @@ Het platform is ontworpen voor:
   ┌──────────────────────┐
   │ Streamlit Dashboard  │
   └──────────────────────┘
-
 
 ---
 
@@ -140,6 +138,7 @@ Wordt gebruikt wanneer:
 - Te weinig historische data beschikbaar is
 
 **Grenswaarden:**
+
 - CPU temp > **85°C**
 - CPU usage > **95%**
 - RAM > **90%**
@@ -151,15 +150,18 @@ Wordt gebruikt wanneer:
 
 Geavanceerde anomaly analysis via REST API.
 
-**Endpoint:**  
+**Endpoint:**
+
 `pi-anomaly-endpoint`
 
 **Deployment workflow:**
+
 1. `train_model.py` → Train Isolation Forest  
 2. `deploy_to_azure.py` → Upload & deploy  
 3. `score.py` → Inference script  
 
 **Request voorbeeld:**
+
 ```json
 {
   "data": {
