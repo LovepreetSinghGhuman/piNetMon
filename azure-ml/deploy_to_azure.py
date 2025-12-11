@@ -98,6 +98,15 @@ print(f"\nEndpoint URL: {endpoint_details.scoring_uri}")
 print(f"Primary Key: {ml_client.online_endpoints.get_keys(endpoint_name).primary_key}")
 
 print("\n✅ Deployment complete!")
-print("\nUpdate your cloud_ai_model.py with:")
-print(f"  endpoint_url = '{endpoint_details.scoring_uri}'")
-print(f"  api_key = '[YOUR_PRIMARY_KEY]'")
+print("\nUpdate your config/config.json with:")
+print(f"""
+{{
+  "ai_models": {{
+    "cloud": {{
+      "endpoint": "{endpoint_details.scoring_uri}",
+      "api_key": "[YOUR_PRIMARY_KEY]"
+    }}
+  }}
+}}
+""")
+print("\nThe cloud AI is accessed via the CloudAIService in src/ai_models.py")
