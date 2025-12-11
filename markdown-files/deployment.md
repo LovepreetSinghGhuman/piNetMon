@@ -1,5 +1,12 @@
 # Raspberry Pi Network Monitor - Deployment Guide
 
+**Versie**: 2.0  
+**Laatst bijgewerkt**: 11 december 2025  
+**Author**: Lovepreet Singh  
+**Project**: HOWEST TIC CFAI - IoT Monitoring Opdracht
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -179,8 +186,3 @@ tail -f logs/main.log
 - [Azure Portal](https://portal.azure.com)
 
 ---
-
-**Versie**: 2.0  
-**Laatst bijgewerkt**: 11 december 2025  
-**Author**: Lovepreet Singh  
-**Project**: HOWEST TIC CFAI - IoT Monitoring Opdracht
