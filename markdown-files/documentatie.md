@@ -374,6 +374,36 @@ Functionaliteit:
 
 ---
 
+## 8.1.1 Tailscale VPN Netwerk
+
+**Geïnstalleerd op 3 devices:**
+
+1. **Raspberry Pi 4** - IoT monitoring device
+2. **Laptop** - Development & testing
+3. **Desktop Workstation** - Primary development machine
+
+**Voordelen:**
+
+- ✓ Alle 3 devices zijn pingable en toegankelijk
+- ✓ Veilige verbinding zonder port forwarding
+- ✓ Remote toegang tot Pi dashboard en QuestDB
+- ✓ Geïntegreerde DNS voor gemakkelijke device discovery
+
+**Toegang via Tailscale:**
+
+```bash
+# Ping Raspberry Pi via Tailscale
+ping raspberry-pi-tailscale-name
+
+# SSH via Tailscale
+ssh admin@raspberry-pi-tailscale-name
+
+# Dashboard toegang
+http://raspberry-pi-tailscale-name:8501
+```
+
+---
+
 ## 8.2 Projectstructuur
 
 ```pgsql
@@ -448,6 +478,7 @@ piNetMon/
 - ✔ Deployment automation scripts
 - ✔ Real data training (373+ samples)
 - ✔ QuestDB connection optimalisatie
+- ✔ Tailscale VPN voor veilige remote toegang (3 devices)
 
 ---
 
