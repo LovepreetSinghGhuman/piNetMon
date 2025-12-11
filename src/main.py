@@ -17,8 +17,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from sensor_collector import SensorCollector
 from questdb_storage import QuestDBStorage
-from local_ai_model import AnomalyDetector, SimpleThresholdDetector
-from cloud_ai_model import CloudAIService, MockAzureMLClient
+from ai_models import AnomalyDetector, SimpleThresholdDetector, CloudAIService, MockAzureMLClient
 from cloud_integration import AzureIoTClient, CloudDataManager
 from mongodb_storage import MongoDBStorage
 
