@@ -3,6 +3,7 @@
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 - Raspberry Pi (3 of hoger) met Raspbian OS
 - Python 3.11+
 - Docker (voor QuestDB)
@@ -112,6 +113,7 @@ Update `config/config.json` met endpoint URL en API key uit deployment output.
 ## ✅ Deployment Checklist
 
 **Local (Pi)**
+
 - [ ] QuestDB container running
 - [ ] Virtual environment active
 - [ ] `config.json` configured
@@ -120,11 +122,13 @@ Update `config/config.json` met endpoint URL en API key uit deployment output.
 - [ ] Dashboard accessible (port 8501)
 
 **Azure**
+
 - [ ] IoT Hub device registered
 - [ ] Azure Function deployed ✅ 
 - [ ] MongoDB Atlas active
 
 **Verify:**
+
 ```bash
 docker ps | grep questdb
 ps aux | grep main.py
@@ -154,6 +158,7 @@ Azure Functions (188+ invocations) • QuestDB time-series • MongoDB Atlas •
 ## 📞 Quick Reference
 
 **Common Commands:**
+
 ```bash
 # Status
 docker ps && ps aux | grep python
@@ -168,6 +173,7 @@ tail -f logs/main.log
 ```
 
 **URLs:**
+
 - Dashboard: `http://<pi-ip>:8501`
 - QuestDB Console: `http://localhost:9000`
 - [Azure Portal](https://portal.azure.com)
