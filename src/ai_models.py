@@ -36,26 +36,26 @@ def load_real_data_for_training(min_samples=100):
         from questdb_storage import QuestDBStorage
         
         db = QuestDBStorage()
-        query = f"SELECT cpu_temperature, cpu_usage, memory_percent, disk_percent, network_sent_mb, network_recv_mb FROM sensor_data ORDER BY timestamp DESC LIMIT 1000"
+        query = "SELECT cpu_temperature, cpu_usage, memory_percent, disk_percent, network_sent_mb, network_recv_mb FROM sensor_data ORDER BY timestamp DESC LIMIT 1000"
         
-        data = db.execute_query(query)
+        result = db.query(query)
         
-        if data is None or len(data) < min_samples:
-            print(f"Insufficient real data: {len(data) if data else 0} records (minimum {min_samples} required)")
+        if result is None:
+            print(f"⚠️  Query returned None - QuestDB may not be accessible")
+            return None
+        
+        # Extract dataset from QuestDB response
+        data = result.get('dataset', [])
+        # Extract dataset from QuestDB response
+        data = result.get('dataset', [])
+        
+        if not data or len(data) < min_samples:
+            print(f"⚠️  Insufficient data in QuestDB: {len(data) if data else 0} samples (need {min_samples})")
             return None
         
         # Convert to numpy array
-        X = np.array([
-            [
-                row.get('cpu_temperature', 0.0) or 0.0,
-                row.get('cpu_usage', 0.0) or 0.0,
-                row.get('memory_percent', 0.0) or 0.0,
-                row.get('disk_percent', 0.0) or 0.0,
-                row.get('network_sent_mb', 0.0) or 0.0,
-                row.get('network_recv_mb', 0.0) or 0.0
-            ]
-            for row in data
-        ])
+        # QuestDB returns data as array of arrays
+        X = np.array(data, dtype=float)
         
         print(f"✅ Loaded {len(X)} real samples from QuestDB")
         return X
@@ -201,6 +201,38 @@ class AnomalyDetector:
             data['network'].get('bytes_recv_mb', 0.0)
         ]
         return np.array(features).reshape(1, -1)
+    
+    def train(self, training_data: List[Dict[str, Any]]):
+        """
+        Train the model with provided sensor data.
+        
+        Args:
+            training_data: List of sensor data dictionaries
+        """
+        if not training_data:
+            logger.warning("No training data provided")
+            return
+        
+        # Extract features from all training samples
+        features_list = [self.extract_features(sample).flatten() for sample in training_data]
+        X_train = np.array(features_list)
+        
+        logger.info(f"Training with {len(X_train)} samples...")
+        
+        # Fit scaler
+        self.scaler.fit(X_train)
+        X_train_scaled = self.scaler.transform(X_train)
+        
+        # Train model
+        self.model.fit(X_train_scaled)
+        
+        logger.info("Model training complete")
+        
+        # Save the trained model
+        try:
+            self.save_model()
+        except Exception as e:
+            logger.error(f"Failed to save model: {e}")
     
     def predict(self, data: Dict[str, Any]) -> Tuple[bool, float]:
         """Predict if data point is anomalous."""

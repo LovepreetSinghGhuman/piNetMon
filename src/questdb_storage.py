@@ -35,7 +35,10 @@ class QuestDBStorage:
     def _test_connection(self):
         """Test connection to QuestDB and ensure table exists."""
         try:
-            response = requests.get(f"http://{self.host}:{self.port}/", timeout=3)
+            # Skip the root endpoint test, go directly to exec endpoint
+            # This avoids timeout issues while still verifying QuestDB is accessible
+            test_query = "SELECT 1"
+            response = requests.get(self.query_url, params={'query': test_query}, timeout=15)
             if response.status_code == 200:
                 logger.info("Successfully connected to QuestDB")
                 # Ensure table exists
