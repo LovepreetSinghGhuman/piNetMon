@@ -1,1 +1,72 @@
+cat > .gitignore << 'EOF'
+# Configuration files with secrets
 config/config.json
+config/*.local.json
+*.env
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+pivenv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Data and Logs
+data/questdb/
+data/*.db
+data/*.db-journal
+data/json/
+*.log
+logs/
+
+# Azure Functions
+azure-functions/.python_packages/
+azure-functions/.venv/
+local.settings.json
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Streamlit
+.streamlit/secrets.toml
+EOF
