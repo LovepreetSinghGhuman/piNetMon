@@ -13,6 +13,9 @@ echo ""
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
+# Create logs directory if it doesn't exist
+mkdir -p logs
+
 # Colors for output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -68,9 +71,10 @@ else
     print_status "QuestDB started"
 fi
 
-# Test QuestDB connection
+# Test QuestDB connection (suppress errors, wait a bit longer)
 echo "   Testing QuestDB connection..."
-python3 -c "import requests; r = requests.get('http://localhost:9000/exec', params={'query': 'SELECT 1'}, timeout=15); exit(0 if r.status_code == 200 else 1)" && print_status "QuestDB is accessible" || print_warning "QuestDB may not be ready yet"
+sleep 3
+python3 -c "import requests; r = requests.get('http://localhost:9000/exec', params={'query': 'SELECT 1'}, timeout=15); exit(0 if r.status_code == 200 else 1)" 2>/dev/null && print_status "QuestDB is accessible" || print_warning "QuestDB may not be ready yet (will retry on first use)"
 
 # 3. Start Streamlit Dashboard (in background)
 echo ""
