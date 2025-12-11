@@ -13,33 +13,54 @@ def init():
     global model, scaler
     
     try:
-        # Load model and scaler from models directory
+        # Get model directory from Azure ML environment variable
         model_dir = os.getenv('AZUREML_MODEL_DIR', '.')
-        print(f"Model directory: {model_dir}")
+        print(f"AZUREML_MODEL_DIR: {model_dir}")
         
-        # Files are directly in model_dir (flattened structure)
+        # Azure ML puts model files directly in AZUREML_MODEL_DIR
+        # Structure: /var/azureml-app/azureml-models/<model-name>/<version>/
+        # Our files should be directly there (flattened during upload)
         model_path = os.path.join(model_dir, 'model.pkl')
         scaler_path = os.path.join(model_dir, 'scaler.pkl')
         
         print(f"Looking for model at: {model_path}")
         print(f"Looking for scaler at: {scaler_path}")
         
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Model file not found: {model_path}")
-        if not os.path.exists(scaler_path):
-            raise FileNotFoundError(f"Scaler file not found: {scaler_path}")
+        # Debug: List directory contents
+        print(f"Contents of {model_dir}:")
+        for root, dirs, files in os.walk(model_dir):
+            level = root.replace(model_dir, '').count(os.sep)
+            indent = ' ' * 2 * level
+            print(f"{indent}{os.path.basename(root)}/")
+            sub_indent = ' ' * 2 * (level + 1)
+            for file in files:
+                print(f"{sub_indent}{file}")
         
-        print(f"Loading model from: {model_path}")
+        # Check if files exist
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found at: {model_path}")
+        if not os.path.exists(scaler_path):
+            raise FileNotFoundError(f"Scaler file not found at: {scaler_path}")
+        
+        print(f"✓ Found model.pkl ({os.path.getsize(model_path)} bytes)")
+        print(f"✓ Found scaler.pkl ({os.path.getsize(scaler_path)} bytes)")
+        
+        # Load model
+        print("Loading model...")
         with open(model_path, 'rb') as f:
             model = pickle.load(f)
+        print(f"✓ Model loaded: {type(model)}")
         
-        print(f"Loading scaler from: {scaler_path}")
+        # Load scaler
+        print("Loading scaler...")
         with open(scaler_path, 'rb') as f:
             scaler = pickle.load(f)
+        print(f"✓ Scaler loaded: {type(scaler)}")
         
-        print("Model and scaler loaded successfully")
+        print("✅ Initialization complete!")
+        
     except Exception as e:
-        print(f"Error in init(): {e}")
+        print(f"❌ Error in init(): {e}")
         import traceback
         traceback.print_exc()
         raise

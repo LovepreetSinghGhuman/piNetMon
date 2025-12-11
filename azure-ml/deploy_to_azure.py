@@ -20,6 +20,11 @@ subscription_id = "921ad5d6-1557-439f-9b4a-b79c931b64d0"
 resource_group = "CFAI"
 workspace_name = "piAIModelCloud"
 
+# Get paths
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+models_dir = os.path.join(project_root, "models")
+
 # Connect to workspace
 credential = DefaultAzureCredential()
 ml_client = MLClient(credential, subscription_id, resource_group, workspace_name)
@@ -31,8 +36,8 @@ print("Registering model...")
 # Create temp directory and copy pkl files directly (flatten structure)
 temp_dir = tempfile.mkdtemp()
 try:
-    shutil.copy("models/model.pkl", os.path.join(temp_dir, "model.pkl"))
-    shutil.copy("models/scaler.pkl", os.path.join(temp_dir, "scaler.pkl"))
+    shutil.copy(os.path.join(models_dir, "model.pkl"), os.path.join(temp_dir, "model.pkl"))
+    shutil.copy(os.path.join(models_dir, "scaler.pkl"), os.path.join(temp_dir, "scaler.pkl"))
     print(f"Created flattened model directory at: {temp_dir}")
     
     model = Model(
@@ -69,11 +74,11 @@ deployment = ManagedOnlineDeployment(
     endpoint_name=endpoint_name,
     model=registered_model.id,
     code_configuration=CodeConfiguration(
-        code="azure-ml",
+        code=script_dir,
         scoring_script="score.py"
     ),
     environment=Environment(
-        conda_file="azure-ml/conda_env.yml",
+        conda_file=os.path.join(script_dir, "conda_env.yml"),
         image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04:latest"
     ),
     instance_type="Standard_DS2_v2",
