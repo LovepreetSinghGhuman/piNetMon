@@ -1,0 +1,5 @@
+# Azure Functions requirements
+azure-functions
+azure-storage-blob
+requests
+numpy

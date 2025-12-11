@@ -1,0 +1,66 @@
+{
+  "azure": {
+    "subscription_id": "921ad5d6-1557-439f-9b4a-b79c931b64d0",
+    "iot_hub": {
+      "name": "HowestTICFAILovepreetHub",
+      "resource_group": "CFAI",
+      "device_id": "rapsberry-pi-monitor",
+      "connection_string": "PLACEHOLDER_CONNECTION_STRING"
+    },
+    "cloud": {
+    "anomaly_detection": {
+      "api_key": "PLACEHOLDER_API_KEY"
+    }
+  }
+    "storage_account": {
+      "name": "cfaib17b"
+    }
+  },
+  "sensors": {
+    "temperature": {
+      "enabled": true,
+      "interval_seconds": 60
+    },
+    "cpu": {
+      "enabled": true,
+      "interval_seconds": 30
+    },
+    "memory": {
+      "enabled": true,
+      "interval_seconds": 30
+    },
+    "network": {
+      "enabled": true,
+      "interval_seconds": 60
+    }
+  },
+  "questdb": {
+    "host": "localhost",
+    "port": 9000
+  },
+  "local_storage": {
+    "path": "./data",
+    "max_size_mb": 100,
+    "retention_days": 7
+  },
+  "mongodb": {
+    "connection_string": "mongodb+srv://USERNAME:PASSWORD@YOUR_CLUSTER.mongodb.net/",
+  },
+  "ai_models": {
+    "local": {
+      "anomaly_detection": {
+        "enabled": true,
+        "threshold": 0.8
+      }
+    },
+    "cloud": {
+      "enabled": true,
+      "endpoint": "https://endpoint_name-endpoint.westeurope.inference.ml.azure.com/score",
+      "api_key": "key"
+    }
+  },
+  "dashboard": {
+    "port": 8501,
+    "refresh_interval": 5
+  }
+}

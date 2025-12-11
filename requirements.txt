@@ -1,0 +1,23 @@
+# Raspberry Pi Network Monitor - Python Dependencies
+
+# Core dependencies
+psutil>=5.9.6
+numpy>=1.26.0
+scikit-learn>=1.3.2
+
+# Azure IoT Hub
+azure-iot-device>=2.13.0
+
+# QuestDB HTTP API and Azure ML
+requests>=2.31.0
+
+# Streamlit Dashboard
+streamlit>=1.29.0
+plotly>=5.18.0
+pandas>=2.1.4
+
+# Additional utilities
+python-dateutil>=2.8.2
+
+# MongoDB Atlas (optional - for multi-cloud storage)
+pymongo[srv]>=4.6.1

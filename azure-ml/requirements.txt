@@ -1,0 +1,5 @@
+# Azure ML Requirements
+azure-ai-ml
+azure-identity
+scikit-learn==1.8.0
+numpy==2.2.0
