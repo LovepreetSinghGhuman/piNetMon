@@ -129,3 +129,12 @@ echo "  - Dashboard:  http://$(hostname -I | awk '{print $1}'):8501"
 echo "  - QuestDB UI: http://$(hostname -I | awk '{print $1}'):9000"
 echo ""
 print_status "Deployment complete!"
+
+# Optional: Sync updated files to remote Pi
+# rsync -avz --progress \
+#   --exclude='__pycache__/' \
+#   --exclude='data/' \
+#   --exclude='.vscode/' \
+#   --exclude='pivenv/' \
+#   --exclude='*.pyc' \
+#   /home/lovep/piNetMon/ admin@<PI-IP>:/home/admin/piNetMon/
