@@ -62,11 +62,12 @@ Het platform is ontworpen voor:
 | Component                 | Beschrijving |
 |--------------------------|--------------|
 | **Sensor Collector**     | Leest CPU, RAM, disk, network en CPU-temperatuur uit. |
-| **QuestDB (lokaal)**     | Lokaal time-series opslag, draait in Docker container. |
-| **Local AI Model**       | Isolation Forest voor lokale anomaliedetectie. |
+| **QuestDB (lokaal)**     | Lokaal time-series opslag, draait in Docker container met auto-restart. |
+| **Unified AI Model**     | `ai_models.py` bevat training, local AI en cloud AI functionaliteit. |
 | **Threshold-fallback**   | Simpele grenswaardedetectie bij model failure. |
 | **Azure IoT Client**     | Verzenden van telemetrie + cloud configuratie. |
 | **Runtime configuratie** | Updatebaar via IoT Hub Device Twin. |
+| **Deployment scripts**   | `deploy_pi.sh` en `stop_pi.sh` voor service management. |
 
 ---
 
@@ -106,15 +107,35 @@ Het platform is ontworpen voor:
 
 # 🤖 4. AI Architectuur
 
-Het systeem gebruikt een **Dual-Model AI Strategie**.
+Het systeem gebruikt een **Unified AI Module** (`ai_models.py`) met drie componenten.
 
-## 4.1 Edge AI – Local Isolation Forest
+## 4.1 Model Training
+
+**Functie:** `train_and_save_models()`
+
+- Laadt real sensor data uit QuestDB (373+ samples)
+- Fallback naar synthetische data bij < 100 samples
+- Traint Isolation Forest model
+- Slaat `model.pkl` en `scaler.pkl` op
+
+**Training uitvoeren:**
+
+```bash
+python3 src/ai_models.py
+```
+
+---
+
+## 4.2 Edge AI – Local Isolation Forest
+
+**Class:** `AnomalyDetector`
 
 **Voordelen:**
 
 - Offline beschikbaar
 - Geen latency
 - Snellere anomaly detection
+- Trainbaar met nieuwe data via `train()` method
 
 **Features (6):**
 
@@ -125,12 +146,14 @@ Het systeem gebruikt een **Dual-Model AI Strategie**.
 - Network sent MB  
 - Network recv MB  
 
-**Model file:** `models/local-model.pkl`  
+**Model file:** `models/model.pkl`  
 **Contamination:** `0.1`  
 
 ---
 
 ## 4.2 Threshold Fallback Detector
+
+**Class:** `SimpleThresholdDetector`
 
 Wordt gebruikt wanneer:
 
@@ -148,6 +171,8 @@ Wordt gebruikt wanneer:
 
 ## 4.3 Cloud AI – Azure ML Endpoint
 
+**Class:** `CloudAIService` met `AzureMLClient`
+
 Geavanceerde anomaly analysis via REST API.
 
 **Endpoint:**
@@ -156,9 +181,9 @@ Geavanceerde anomaly analysis via REST API.
 
 **Deployment workflow:**
 
-1. `train_model.py` → Train Isolation Forest  
-2. `deploy_to_azure.py` → Upload & deploy  
-3. `score.py` → Inference script  
+1. `python3 src/ai_models.py` → Train model lokaal  
+2. `python3 azure-ml/deploy_to_azure.py` → Upload & deploy  
+3. `score.py` → Inference script in Azure  
 
 **Request voorbeeld:**
 
@@ -239,33 +264,51 @@ QUESTDB_PORT
 
 ## 6.3 QuestDB
 
+**Docker container met auto-restart:**
+
+```bash
+docker run -d \
+  --name questdb \
+  -p 9000:9000 \
+  -p 9009:9009 \
+  --restart unless-stopped \
+  -v ~/piNetMon/data/questdb:/var/lib/questdb \
+  questdb/questdb
+```
+
 **Voordelen:**
 
 - Miljoenen rows/sec ingestie
 - Time-series optimalisaties
 - SQL compatibel
+- Web UI op poort 9000
+
+**Connectie optimalisatie:**
+
+- Gebruikt `/exec` endpoint (niet root `/`)
+- 15-20 seconden timeout voor Raspberry Pi
+- Query direct, geen health check op root endpoint
 
 **Tabelstructuur:**
 
 ```sql
-CREATE TABLE telemetry (
+CREATE TABLE sensor_data (
   device_id SYMBOL,
   cpu_temperature DOUBLE,
   cpu_usage DOUBLE,
-  memory_usage DOUBLE,
-  disk_usage DOUBLE,
+  memory_percent DOUBLE,
+  disk_percent DOUBLE,
   network_sent_mb DOUBLE,
   network_recv_mb DOUBLE,
-  health_score INT,
-  is_anomaly BOOLEAN,
   anomaly_score DOUBLE,
+  is_anomaly BOOLEAN,
   timestamp TIMESTAMP
 ) timestamp(timestamp) PARTITION BY DAY;
 ```
 
 ---
 
-## 6.3 MongoDB Atlas
+## 6.4 MongoDB Atlas
 
 Gebruikt voor:
 
@@ -287,41 +330,83 @@ Gebruikt voor:
 - Raw data viewer
 - Anomaly overlays
 
+**Starten:**
+
+```bash
+streamlit run dashboard/dashboard.py --server.address 0.0.0.0
+```
+
 ---
 
-# 🛠️ 8. Projectstructuur
+# 🛠️ 8. Projectstructuur & Deployment
+
+## 8.1 Deployment Scripts
+
+**Start alle services:**
+
+```bash
+./deploy_pi.sh
+```
+
+Functionaliteit:
+- ✓ Start Docker service
+- ✓ Start QuestDB container (met auto-restart)
+- ✓ Start Streamlit dashboard (achtergrond)
+- ✓ Start main.py monitoring (achtergrond)
+- ✓ Test connecties
+- ✓ Toon URLs en PIDs
+
+**Stop alle services:**
+
+```bash
+./stop_pi.sh
+```
+
+Functionaliteit:
+- ✓ Stop main.py gracefully
+- ✓ Stop Streamlit dashboard
+- ✓ Stop QuestDB container
+- ✓ Verificatie van shutdown
+
+**Logs:**
+- Dashboard: `logs/dashboard.log`
+- Main App: `logs/main.log`
+
+---
+
+## 8.2 Projectstructuur
 
 ```pgsql
 piNetMon/
 ├── config/
-│   └── config.json
+│   ├── config.json
+│   └── config.json.example
 ├── data/
-│   ├── questdb/
-│   ├── sensor_data.db
-│   └── json/
+│   └── questdb/              # QuestDB Docker volume
+├── logs/                      # Application logs
+│   ├── main.log
+│   └── dashboard.log
 ├── models/
-│   ├── local-model.pkl
-│   ├── model.pkl
-│   └── scaler.pkl
+│   ├── model.pkl             # Trained Isolation Forest
+│   └── scaler.pkl            # StandardScaler for features
 ├── src/
-│   ├── main.py
-│   ├── sensor_collector.py
-│   ├── questdb_storage.py
-│   ├── local_storage.py
-│   ├── mongodb_storage.py
-│   ├── local_ai_model.py
-│   ├── cloud_ai_model.py
-│   └── cloud_integration.py
+│   ├── main.py               # Main orchestrator
+│   ├── sensor_collector.py   # System metrics collection
+│   ├── questdb_storage.py    # QuestDB time-series storage
+│   ├── mongodb_storage.py    # MongoDB Atlas integration
+│   ├── ai_models.py          # Unified AI module (training + local + cloud)
+│   └── cloud_integration.py  # Azure IoT Hub client
 ├── dashboard/
-│   └── dashboard.py
+│   └── dashboard.py          # Streamlit visualization
 ├── azure-functions/
 │   └── IoTHubTrigger/
 │       ├── __init__.py
 │       └── function.json
 ├── azure-ml/
-│   ├── train_model.py
-│   ├── deploy_to_azure.py
-│   └── score.py
+│   ├── deploy_to_azure.py    # Deploy model to Azure ML
+│   └── score.py              # Azure ML inference script
+├── deploy_pi.sh              # Start all services after reboot
+├── stop_pi.sh                # Stop all services
 ├── requirements.txt
 └── README.md
 ```
@@ -339,7 +424,7 @@ piNetMon/
 
 # 🎯 10. Checklist Eindopdracht
 
-**Minimumvereisten**
+**Minimumvereisten:**
 
 - ✔ Raspberry Pi monitort systeemdata
 - ✔ Lokale opslag (QuestDB + SQLite fallback)
@@ -350,7 +435,7 @@ piNetMon/
 - ✔ Remote configuratie
 - ✔ Documentatie
 
-**Bonus Features**
+**Bonus Features:**
 
 - ✔ Azure Functions
 - ✔ QuestDB (Docker + Cloud)
@@ -358,8 +443,11 @@ piNetMon/
 - ✔ Direct Methods
 - ✔ Device Twin
 - ✔ Async I/O
-- ✔ Dockerized QuestDB
-- ✔ Dual AI strategie
+- ✔ Dockerized QuestDB met auto-restart
+- ✔ Unified AI module (consolidated codebase)
+- ✔ Deployment automation scripts
+- ✔ Real data training (373+ samples)
+- ✔ QuestDB connection optimalisatie
 
 ---
 
@@ -367,17 +455,26 @@ piNetMon/
 
 Dit platform combineert edge computing, cloud scalability, real-time analytics, en machine learning in één geïntegreerd IoT-systeem.
 
-Met:
+**Kerncomponenten:**
 
-- Lokale anomaly detection
-- Cloud-based AI
-- QuestDB time-series opslag
-- Streamlit dashboard
-- Azure serverless verwerking
+- Unified AI module (`ai_models.py`) met training, local en cloud inferencing
+- QuestDB time-series opslag (Docker met auto-restart)
+- Streamlit dashboard voor visualisatie
+- Azure serverless verwerking (IoT Hub + Functions)
+- MongoDB Atlas voor redundantie
+- Deployment automation met `deploy_pi.sh` en `stop_pi.sh`
+
+**Prestaties:**
+
+- 373+ real sensor samples voor model training
+- 15-20s QuestDB timeout optimalisatie
+- Graceful shutdown & startup scripts
+- Background process management
+- Comprehensive logging
 
 ---
 
-### Health score berekening:
+## Health Score Berekening
 
 ```python
 score = 100
