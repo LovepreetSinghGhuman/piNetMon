@@ -5,9 +5,13 @@ psutil>=5.9.6
 numpy>=1.26.0
 scikit-learn>=1.3.2
 
+# ONNX Runtime for optimized model inference
+onnxruntime>=1.16.0
+skl2onnx>=1.16.0
+
 # Azure IoT Hub
 azure-iot-device>=2.13.0
-azure-iot-hub>=2.6.1
+# azure-iot-hub>=2.6.1 - uamqp build issues on Python 3.13
 
 # QuestDB HTTP API and Azure ML
 requests>=2.31.0

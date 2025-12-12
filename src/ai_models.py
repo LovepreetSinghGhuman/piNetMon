@@ -13,6 +13,9 @@ from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 from typing import Dict, Any, Tuple, List, Optional
 import logging
+import onnxruntime as ort
+from skl2onnx import convert_sklearn
+from skl2onnx.common.data_types import FloatTensorType
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -138,18 +141,56 @@ def train_and_save_models(models_dir='../models'):
     
     model_file = os.path.join(models_path, 'model.pkl')
     scaler_file = os.path.join(models_path, 'scaler.pkl')
+    model_onnx_file = os.path.join(models_path, 'model.onnx')
+    scaler_onnx_file = os.path.join(models_path, 'scaler.onnx')
     
+    # Save pickle versions (backward compatibility)
     with open(model_file, 'wb') as f:
         pickle.dump(model, f)
     
     with open(scaler_file, 'wb') as f:
         pickle.dump(scaler, f)
     
+    # Export to ONNX format for optimized inference
+    print("Exporting to ONNX format...")
+    try:
+        n_features = X_train.shape[1]
+        
+        # Convert scaler to ONNX
+        initial_type_scaler = [('float_input', FloatTensorType([None, n_features]))]
+        scaler_onnx = convert_sklearn(
+            scaler,
+            initial_types=initial_type_scaler,
+            target_opset=12
+        )
+        with open(scaler_onnx_file, 'wb') as f:
+            f.write(scaler_onnx.SerializeToString())
+        
+        # Convert model to ONNX
+        initial_type_model = [('float_input', FloatTensorType([None, n_features]))]
+        model_onnx = convert_sklearn(
+            model,
+            initial_types=initial_type_model,
+            target_opset=12
+        )
+        with open(model_onnx_file, 'wb') as f:
+            f.write(model_onnx.SerializeToString())
+        
+        # Get file sizes
+        pkl_size = os.path.getsize(model_file) + os.path.getsize(scaler_file)
+        onnx_size = os.path.getsize(model_onnx_file) + os.path.getsize(scaler_onnx_file)
+        
+        print(f"✅ ONNX export complete (saved {(1 - onnx_size/pkl_size)*100:.1f}%)")
+    except Exception as e:
+        print(f"⚠️  ONNX export failed: {e}")
+        print("   Falling back to pickle-only mode")
+    
     print(f"\n{'='*60}")
     print(f"✅ Model training complete!")
     print(f"{'='*60}")
-    print(f"Model:  {model_file}")
-    print(f"Scaler: {scaler_file}")
+    print(f"Pickle:  {model_file}, {scaler_file}")
+    if os.path.exists(model_onnx_file):
+        print(f"ONNX:    {model_onnx_file}, {scaler_onnx_file}")
     print(f"Samples: {len(X_train)}")
     print(f"{'='*60}\n")
 
@@ -161,24 +202,43 @@ def train_and_save_models(models_dir='../models'):
 class AnomalyDetector:
     """Local AI model for detecting anomalies in sensor data."""
     
-    def __init__(self, model_path: str = "./models/local-model.pkl",
-                 contamination: float = 0.1):
+    def __init__(self, model_path: str = "./models/model.pkl",
+                 contamination: float = 0.1,
+                 use_onnx: bool = True):
         """Initialize anomaly detector."""
         self.model_path = model_path
         self.contamination = contamination
+        self.use_onnx = use_onnx
         self.model: Optional[IsolationForest] = None
         self.scaler: Optional[StandardScaler] = None
+        self.onnx_model = None
+        self.onnx_scaler = None
         self.feature_names = [
             'cpu_temperature', 'cpu_usage_percent', 'memory_percent',
             'disk_percent', 'network_bytes_sent_mb', 'network_bytes_recv_mb'
         ]
         
-        if os.path.exists(model_path):
-            self.load_model()
-        else:
-            self._initialize_model()
+        # Try ONNX first if enabled
+        if use_onnx:
+            onnx_model_path = model_path.replace('.pkl', '.onnx')
+            onnx_scaler_path = model_path.replace('model.pkl', 'scaler.onnx')
+            if os.path.exists(onnx_model_path) and os.path.exists(onnx_scaler_path):
+                try:
+                    self.onnx_model = ort.InferenceSession(onnx_model_path)
+                    self.onnx_scaler = ort.InferenceSession(onnx_scaler_path)
+                    logger.info("✅ Loaded ONNX models for fast inference")
+                except Exception as e:
+                    logger.warning(f"Failed to load ONNX: {e}, falling back to pickle")
+                    self.use_onnx = False
         
-        logger.info("AnomalyDetector initialized")
+        # Fallback to pickle
+        if not self.use_onnx or self.onnx_model is None:
+            if os.path.exists(model_path):
+                self.load_model()
+            else:
+                self._initialize_model()
+        
+        logger.info(f"AnomalyDetector initialized (ONNX: {self.use_onnx and self.onnx_model is not None})")
     
     def _initialize_model(self):
         """Initialize a new model and scaler."""
@@ -236,13 +296,82 @@ class AnomalyDetector:
     
     def predict(self, data: Dict[str, Any]) -> Tuple[bool, float]:
         """Predict if data point is anomalous."""
+        features = self.extract_features(data)
+        
+        # Use ONNX runtime for faster inference
+        if self.use_onnx and self.onnx_model is not None and self.onnx_scaler is not None:
+            try:
+                # Scale features
+                features_float = features.astype(np.float32)
+                scaler_input = {self.onnx_scaler.get_inputs()[0].name: features_float}
+                features_scaled = self.onnx_scaler.run(None, scaler_input)[0]
+                
+                # Predict
+                model_input = {self.onnx_model.get_inputs()[0].name: features_scaled.astype(np.float32)}
+                outputs = self.onnx_model.run(None, model_input)
+                
+                prediction = outputs[0][0]  # label
+                anomaly_score = -outputs[1][0][0]  # score (negated)
+                
+                is_anomaly = (prediction == -1 or prediction == 1)  # ONNX may use 1 for anomaly
+                
+                if is_anomaly:
+                    logger.warning(f"Anomaly detected! Score: {anomaly_score:.3f} (ONNX)")
+                
+                return bool(is_anomaly), float(anomaly_score)
+                
+            except Exception as e:
+                logger.error(f"ONNX inference failed: {e}, falling back to sklearn")
+                self.use_onnx = False
+        
+        # Fallback to sklearn
         if self.model is None or self.scaler is None:
             logger.warning("Model not trained yet")
             return False, 0.0
         
-        features = self.extract_features(data)
         features_scaled = self.scaler.transform(features)
+        prediction = self.model.predict(features_scaled)[0]
+        anomaly_score = -self.model.score_samples(features_scaled)[0]
         
+        is_anomaly = (prediction == -1)
+        
+        if is_anomaly:
+            logger.warning(f"Anomaly detected! Score: {anomaly_score:.3f}")
+        
+        return is_anomaly, float(anomaly_score)
+        
+        # Use ONNX runtime for faster inference
+        if self.use_onnx and self.onnx_model is not None and self.onnx_scaler is not None:
+            try:
+                # Scale features
+                features_float = features.astype(np.float32)
+                scaler_input = {self.onnx_scaler.get_inputs()[0].name: features_float}
+                features_scaled = self.onnx_scaler.run(None, scaler_input)[0]
+                
+                # Predict
+                model_input = {self.onnx_model.get_inputs()[0].name: features_scaled.astype(np.float32)}
+                outputs = self.onnx_model.run(None, model_input)
+                
+                prediction = outputs[0][0]  # label
+                anomaly_score = -outputs[1][0][0]  # score (negated)
+                
+                is_anomaly = (prediction == -1 or prediction == 1)  # ONNX may use 1 for anomaly
+                
+                if is_anomaly:
+                    logger.warning(f"Anomaly detected! Score: {anomaly_score:.3f} (ONNX)")
+                
+                return bool(is_anomaly), float(anomaly_score)
+                
+            except Exception as e:
+                logger.error(f"ONNX inference failed: {e}, falling back to sklearn")
+                self.use_onnx = False
+        
+        # Fallback to sklearn
+        if self.model is None or self.scaler is None:
+            logger.warning("Model not trained yet")
+            return False, 0.0
+        
+        features_scaled = self.scaler.transform(features)
         prediction = self.model.predict(features_scaled)[0]
         anomaly_score = -self.model.score_samples(features_scaled)[0]
         
