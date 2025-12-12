@@ -111,16 +111,18 @@ def load_statistics():
 def generate_sas_token(uri, key, policy_name, expiry=3600):
     """Generate SAS token for Azure IoT Hub authentication."""
     ttl = int(datetime.now().timestamp()) + expiry
-    sign_key = f"{uri}\n{ttl}"
+    # Azure IoT Hub requires lowercase URI for signature calculation
+    uri_lower = uri.lower()
+    sign_key = f"{uri_lower}\n{ttl}"
     signature = base64.b64encode(
         hmac.new(
             base64.b64decode(key),
             sign_key.encode('utf-8'),
             hashlib.sha256
         ).digest()
-    ).decode('utf-8')  # Decode bytes to string before URL encoding
+    ).decode('utf-8')
     
-    return f"SharedAccessSignature sr={quote_plus(uri)}&sig={quote_plus(signature)}&se={ttl}&skn={policy_name}"
+    return f"SharedAccessSignature sr={quote_plus(uri_lower)}&sig={quote_plus(signature)}&se={ttl}&skn={policy_name}"
 
 
 def parse_connection_string(conn_str):
