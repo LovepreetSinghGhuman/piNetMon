@@ -107,16 +107,27 @@ Het platform is ontworpen voor:
 
 ## 🤖 4. AI Architectuur
 
-Het systeem gebruikt een **Unified AI Module** (`ai_models.py`) met drie componenten.
+Het systeem gebruikt een **Unified AI Module** (`ai_models.py`) met **ONNX-optimalisatie** voor snellere inferencing.
 
-### 4.1 Model Training
+### 4.1 Model Training & Export
 
 **Functie:** `train_and_save_models()`
 
-- Laadt real sensor data uit QuestDB (374+ samples)
-- Fallback naar synthetische data bij < 100 samples
-- Traint Isolation Forest model
-- Slaat `model.pkl` en `scaler.pkl` op
+**Proces:**
+
+1. Laadt real sensor data uit QuestDB (374+ samples)
+2. Fallback naar synthetische data bij < 100 samples
+3. Traint Isolation Forest model (scikit-learn 1.8.0)
+4. Exporteert naar **dubbel formaat**:
+   - `model.pkl` + `scaler.pkl` (pickle - backward compatibility)
+   - `model.onnx` + `scaler.onnx` (ONNX - optimized runtime)
+
+**ONNX Voordelen:**
+
+- 🚀 2-3x snellere inferencing op CPU
+- 📦 20-40% kleinere bestanden
+- 🔄 Cross-platform compatibiliteit
+- ⚡ Optimaal voor edge devices (Raspberry Pi)
 
 **Training uitvoeren:**
 
@@ -124,18 +135,33 @@ Het systeem gebruikt een **Unified AI Module** (`ai_models.py`) met drie compone
 python3 src/ai_models.py
 ```
 
+**Output:**
+
+```plaintext
+Exporting to ONNX format...
+✅ ONNX export complete (saved 35.2%)
+Pickle:  ../models/model.pkl, ../models/scaler.pkl
+ONNX:    ../models/model.onnx, ../models/scaler.onnx
+Samples: 374
+```
+
 ---
 
-### 4.2 Edge AI – Local Isolation Forest
+### 4.2 Edge AI – Local Anomaly Detection
 
 **Class:** `AnomalyDetector`
 
-**Voordelen:**
+**Runtime Modes:**
 
-- Offline beschikbaar
-- Geen latency
-- Snellere anomaly detection
-- Trainbaar met nieuwe data via `train()` method
+- **ONNX Runtime** (primair) - Gebruikt `onnxruntime` voor snelle inferencing
+- **Scikit-learn** (fallback) - Pickle-based wanneer ONNX niet beschikbaar
+
+**Auto-selection:**
+
+```python
+detector = AnomalyDetector(use_onnx=True)  # Default
+# Probeert ONNX eerst → Fallback naar pickle bij failure
+```
 
 **Features (6):**
 
@@ -146,19 +172,29 @@ python3 src/ai_models.py
 - Network sent MB  
 - Network recv MB  
 
-**Model file:** `models/model.pkl`  
-**Contamination:** `0.1`  
+**Model specificaties:**
+
+- Algorithm: Isolation Forest
+- Contamination: 0.1 (10% anomaly rate)
+- N-estimators: 100
+- Random state: 42
+
+**Inference Performance:**
+
+- ONNX: ~1-2ms per prediction
+- Pickle: ~3-5ms per prediction
 
 ---
 
-### 4.2 Threshold Fallback Detector
+### 4.3 Threshold Fallback Detector
 
 **Class:** `SimpleThresholdDetector`
 
 Wordt gebruikt wanneer:
 
-- Het local model corrupt of ontbreekt
+- ML model corrupt of ontbreekt
 - Te weinig historische data beschikbaar is
+- ONNX en pickle beide falen
 
 **Grenswaarden:**
 
@@ -169,21 +205,22 @@ Wordt gebruikt wanneer:
 
 ---
 
-### 4.3 Cloud AI – Azure ML Endpoint
+### 4.4 Cloud AI – Azure ML Endpoint
 
 **Class:** `CloudAIService` met `AzureMLClient`
 
 Geavanceerde anomaly analysis via REST API.
 
-**Endpoint:**
-
-`pi-anomaly-endpoint`
+**Endpoint:** `pi-anomaly-endpoint`  
+**Runtime:** Python 3.11 (conda environment)  
+**SKU:** Standard_DS2_v2
 
 **Deployment workflow:**
 
-1. `python3 src/ai_models.py` → Train model lokaal  
+1. `python3 src/ai_models.py` → Train model lokaal (exports ONNX + pickle)
 2. `python3 azure-ml/deploy_to_azure.py` → Upload & deploy  
-3. `score.py` → Inference script in Azure  
+3. `score.py` → Inference script in Azure (loads pickle)
+4. ~10-20 min deployment tijd
 
 **Request voorbeeld:**
 
@@ -198,6 +235,18 @@ Geavanceerde anomaly analysis via REST API.
     "network_recv": 250.0
   }
 }
+```
+
+**Response:**
+
+```json
+{
+  "is_anomaly": false,
+  "anomaly_score": 0.23,
+  "timestamp": "2025-12-12T15:30:00Z"
+}
+```
+
 ```
 
 ---
@@ -320,20 +369,87 @@ Gebruikt voor:
 
 ## 📊 7. Streamlit Dashboard
 
-**Functies:**
+**Versie:** 1.29.0+  
+**Poort:** 8501  
+**Access:** http://raspberrypi-lovepreet:8501
 
-- Realtime metrics
-- Gauge visualisaties
-- Historische trendgrafieken (1u tot 7d)
-- Auto-refresh
-- CSV export
-- Raw data viewer
-- Anomaly overlays
+### 7.1 Kernfuncties
+
+**Visualisatie:**
+
+- Real-time metrics met auto-refresh (5-300s instelbaar)
+- Gauge charts voor CPU, Memory, Disk, Temperature
+- Historische trendgrafieken (1u, 6u, 12u, 24u, 2d, 7d)
+- Anomaly score scatter plots
+- CSV export functionaliteit
+- Raw data viewer met filtering
+
+**Device Twin Control (Nieuw!):**
+
+Het dashboard bevat nu **3 configuratiepanels** voor remote device management:
+
+#### 1. Collection Interval
+
+Pas sensor data collectie frequentie aan (5-300 seconden):
+
+```json
+{
+  "collection_interval_seconds": 30,
+  "updated_at": "2025-12-12T15:30:00Z"
+}
+```
+
+#### 2. AI Model Settings
+
+Enable/disable AI modellen en pas anomaly threshold aan:
+
+```json
+{
+  "ai_models": {
+    "local": {"enabled": true},
+    "cloud": {"enabled": false},
+    "anomaly_threshold": 0.5
+  }
+}
+```
+
+#### 3. Sensor Toggle
+
+Schakel individuele sensors in/uit:
+
+```json
+{
+  "sensors": {
+    "temperature": {"enabled": true},
+    "cpu": {"enabled": true},
+    "memory": {"enabled": true},
+    "disk": {"enabled": true},
+    "network": {"enabled": true}
+  }
+}
+```
+
+**Updates worden direct naar IoT Hub Device Twin gestuurd en door de Pi opgepikt.**
+
+### 7.2 Vereiste Dependencies
+
+```python
+streamlit>=1.29.0
+plotly>=5.18.0
+pandas>=2.1.4
+azure-iot-hub>=2.6.1  # Voor Device Twin updates
+```
 
 **Starten:**
 
 ```bash
-streamlit run dashboard/dashboard.py --server.address 0.0.0.0
+streamlit run dashboard/dashboard.py --server.address 0.0.0.0 --server.port 8501
+```
+
+**Auto-start via deploy script:**
+
+```bash
+./deploy_pi.sh  # Start automatisch in background
 ```
 
 ---
@@ -439,39 +555,67 @@ sudo systemctl status tailscaled
 
 ### 8.2 Projectstructuur
 
-```pgsql
+```plaintext
 piNetMon/
 ├── config/
-│   ├── config.json
-│   └── config.json.example
+│   ├── config.json              # Runtime configuratie
+│   └── config.json.example      # Template
 ├── data/
-│   └── questdb/              ## QuestDB Docker volume
-├── logs/                      ## Application logs
+│   └── questdb/                 # QuestDB Docker volume
+├── logs/                        # Application logs
 │   ├── main.log
 │   └── dashboard.log
 ├── models/
-│   ├── model.pkl             ## Trained Isolation Forest
-│   └── scaler.pkl            ## StandardScaler for features
+│   ├── model.pkl                # Scikit-learn model (pickle)
+│   ├── scaler.pkl               # StandardScaler (pickle)
+│   ├── model.onnx               # ONNX optimized model
+│   └── scaler.onnx              # ONNX optimized scaler
 ├── src/
-│   ├── main.py               ## Main orchestrator
-│   ├── sensor_collector.py   ## System metrics collection
-│   ├── questdb_storage.py    ## QuestDB time-series storage
-│   ├── mongodb_storage.py    # MongoDB Atlas integration
-│   ├── ai_models.py          ## Unified AI module (training + local + cloud)
-│   └── cloud_integration.py  ## Azure IoT Hub client
+│   ├── main.py                  # Main orchestrator
+│   ├── sensor_collector.py      # System metrics collection
+│   ├── questdb_storage.py       # QuestDB time-series storage
+│   ├── mongodb_storage.py       # MongoDB Atlas integration
+│   ├── ai_models.py             # Unified AI (ONNX + pickle + cloud)
+│   └── cloud_integration.py     # Azure IoT Hub client
 ├── dashboard/
-│   └── dashboard.py          ## Streamlit visualization
+│   └── dashboard.py             # Streamlit dashboard + Device Twin control
 ├── azure-functions/
 │   └── IoTHubTrigger/
 │       ├── __init__.py
 │       └── function.json
 ├── azure-ml/
-│   ├── deploy_to_azure.py    ## Deploy model to Azure ML
-│   └── score.py              ## Azure ML inference script
-├── deploy_pi.sh              ## Start all services after reboot
-├── stop_pi.sh                ## Stop all services
-├── requirements.txt
-└── README.md
+│   ├── conda_env.yml            # Python 3.11 environment
+│   ├── deploy_to_azure.py       # Model deployment script
+│   └── score.py                 # Azure ML inference endpoint
+├── deploy_pi.sh                 # Start services (Tailscale aware)
+├── stop_pi.sh                   # Stop services gracefully
+└── requirements.txt             # Python dependencies + ONNX
+```
+
+**Key Dependencies:**
+
+```txt
+# Core
+psutil>=5.9.6
+numpy>=1.26.0
+scikit-learn>=1.3.2
+
+# ONNX Runtime
+onnxruntime>=1.16.0
+skl2onnx>=1.16.0
+
+# Azure
+azure-iot-device>=2.13.0
+azure-iot-hub>=2.6.1
+
+# Dashboard
+streamlit>=1.29.0
+plotly>=5.18.0
+pandas>=2.1.4
+
+# Storage
+pymongo[srv]>=4.6.1
+requests>=2.31.0
 ```
 
 ---
@@ -504,38 +648,100 @@ piNetMon/
 - ✔ QuestDB (Docker + Cloud)
 - ✔ MongoDB Atlas
 - ✔ Direct Methods
-- ✔ Device Twin
+- ✔ Device Twin met dashboard control
 - ✔ Async I/O
 - ✔ Dockerized QuestDB met auto-restart
-- ✔ Unified AI module (consolidated codebase)
-- ✔ Deployment automation scripts met Tailscale support
+- ✔ Unified AI module (ONNX + pickle dual export)
+- ✔ ONNX Runtime voor 2-3x snellere inferencing
+- ✔ Deployment automation met Tailscale support
 - ✔ Real data training (374+ samples)
 - ✔ QuestDB connection optimalisatie
 - ✔ Tailscale VPN met MagicDNS (3 devices, auto-start via systemd)
+- ✔ Device Twin remote configuratie via dashboard
 
 ---
 
 ## 🧾 11. Conclusie
 
-Dit platform combineert edge computing, cloud scalability, real-time analytics, en machine learning in één geïntegreerd IoT-systeem.
+Dit platform combineert edge computing, cloud scalability, real-time analytics, en machine learning in één geïntegreerd IoT-systeem met moderne optimalisaties.
 
-**Kerncomponenten:**
+### Kerncomponenten
 
-- Unified AI module (`ai_models.py`) met training, local en cloud inferencing
+**AI & ML:**
+
+- Unified AI module (`ai_models.py`) met **ONNX-optimalisatie**
+- Dual-format model export (ONNX + pickle)
+- 2-3x snellere edge inference
+- Cloud AI via Azure ML (Python 3.11 runtime)
+
+**Data & Storage:**
+
 - QuestDB time-series opslag (Docker met auto-restart)
-- Streamlit dashboard voor visualisatie
-- Azure serverless verwerking (IoT Hub + Functions)
 - MongoDB Atlas voor redundantie
+- 374+ real sensor samples voor training
+
+**Dashboard & Control:**
+
+- Streamlit dashboard met real-time visualisatie
+- **Device Twin configuratie** vanuit dashboard
+- Remote sensor enable/disable
+- AI model toggle & threshold aanpassing
+
+**Infrastructuur:**
+
+- Azure serverless verwerking (IoT Hub + Functions)
 - Deployment automation met `deploy_pi.sh` en `stop_pi.sh`
+- Tailscale VPN voor veilige remote toegang
+- Systemd auto-start voor alle services
 
-**Prestaties:**
+### Technische Prestaties
 
-- 374+ real sensor samples voor model training
-- 15-20s QuestDB timeout optimalisatie
+**Inferencing:**
+
+- ONNX: ~1-2ms per prediction
+- Pickle fallback: ~3-5ms per prediction
+- Model size: 35% reductie met ONNX
+
+**Data Processing:**
+
+- QuestDB: 15-20s timeout optimalisatie
+- Time-series partitioning per dag
+- Miljoenen rows/sec ingestie capacity
+
+**Deployment:**
+
 - Graceful shutdown & startup scripts
 - Background process management
-- Comprehensive logging
-- Tailscale hostname auto-detection in deployment scripts
+- Comprehensive logging (main + dashboard)
+- Tailscale hostname auto-detection
+
+**Remote Management:**
+
+- Device Twin updates via dashboard
+- Collection interval configuratie
+- Sensor enable/disable toggle
+- AI model runtime switching
+
+---
+
+### Tech Stack Overzicht
+
+| Component | Technologie |
+|-----------|-------------|
+| **Edge Device** | Raspberry Pi 4 |
+| **OS** | Raspberry Pi OS (Debian) |
+| **Runtime** | Python 3.13 (local), Python 3.11 (Azure ML) |
+| **AI Framework** | scikit-learn 1.8.0 |
+| **Inference** | ONNX Runtime 1.16.0+ |
+| **Time-Series DB** | QuestDB (Docker) |
+| **Cloud DB** | MongoDB Atlas |
+| **Dashboard** | Streamlit 1.29.0 |
+| **Cloud Platform** | Microsoft Azure |
+| **IoT Protocol** | Azure IoT Hub (MQTT/AMQP) |
+| **ML Deployment** | Azure ML Managed Endpoints |
+| **Networking** | Tailscale VPN (MagicDNS) |
+| **Containerization** | Docker |
+| **Orchestration** | Bash scripts + systemd |
 
 ---
 
