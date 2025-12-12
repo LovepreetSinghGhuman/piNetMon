@@ -35,6 +35,15 @@ print_error() {
     echo -e "${RED}✗${NC} $1"
 }
 
+# Get Tailscale hostname if available
+TAILSCALE_HOSTNAME=""
+if command -v tailscale &> /dev/null; then
+    TAILSCALE_HOSTNAME=$(tailscale status --json 2>/dev/null | grep -o '"HostName":"[^"]*"' | cut -d'"' -f4 || echo "")
+    if [ -z "$TAILSCALE_HOSTNAME" ]; then
+        TAILSCALE_HOSTNAME=$(hostname)
+    fi
+fi
+
 # 1. Check Docker service
 echo "1. Checking Docker..."
 if systemctl is-active --quiet docker; then
@@ -88,7 +97,8 @@ else
     sleep 3
     if ps -p $STREAMLIT_PID > /dev/null; then
         print_status "Streamlit started (PID: $STREAMLIT_PID)"
-        echo "   Dashboard: http://$(hostname -I | awk '{print $1}'):8501"
+        echo "   Local: http://$(hostname -I | awk '{print $1}'):8501"
+        [ -n "$TAILSCALE_HOSTNAME" ] && echo "   Tailscale: http://$TAILSCALE_HOSTNAME:8501"
     else
         print_error "Failed to start Streamlit"
     fi
@@ -129,8 +139,15 @@ echo "  - Dashboard: logs/dashboard.log"
 echo "  - Main App:  logs/main.log"
 echo ""
 echo "Access Points:"
-echo "  - Dashboard:  http://$(hostname -I | awk '{print $1}'):8501"
-echo "  - QuestDB UI: http://$(hostname -I | awk '{print $1}'):9000"
+echo "  Local Network:"
+echo "    - Dashboard:  http://$(hostname -I | awk '{print $1}'):8501"
+echo "    - QuestDB UI: http://$(hostname -I | awk '{print $1}'):9000"
+if [ -n "$TAILSCALE_HOSTNAME" ]; then
+    echo ""
+    echo "  Tailscale (Remote Access):"
+    echo "    - Dashboard:  http://$TAILSCALE_HOSTNAME:8501"
+    echo "    - QuestDB UI: http://$TAILSCALE_HOSTNAME:9000"
+fi
 echo ""
 print_status "Deployment complete!"
 
