@@ -126,14 +126,17 @@ def train_and_save_models(models_dir='../models'):
         n_features = X_train.shape[1]
         initial_type = [('float_input', FloatTensorType([None, n_features]))]
         
+        # Specify target opset for compatibility (ai.onnx.ml domain must be version 3)
+        target_opset = {'': 12, 'ai.onnx.ml': 3}
+        
         # Convert scaler
-        scaler_onnx = convert_sklearn(scaler, initial_types=initial_type, target_opset=12)
+        scaler_onnx = convert_sklearn(scaler, initial_types=initial_type, target_opset=target_opset)
         scaler_onnx_file = os.path.join(models_path, 'scaler.onnx')
         with open(scaler_onnx_file, 'wb') as f:
             f.write(scaler_onnx.SerializeToString())
         
         # Convert model
-        model_onnx = convert_sklearn(model, initial_types=initial_type, target_opset=12)
+        model_onnx = convert_sklearn(model, initial_types=initial_type, target_opset=target_opset)
         model_onnx_file = os.path.join(models_path, 'model.onnx')
         with open(model_onnx_file, 'wb') as f:
             f.write(model_onnx.SerializeToString())
