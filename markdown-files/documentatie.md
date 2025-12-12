@@ -1,8 +1,8 @@
 # Raspberry Pi Network Monitoring Platform – Documentatie
 
 **Auteur:** Lovepreet Singh  
-**Versie:** 2.0  
-**Datum:** 11 december 2025  
+**Versie:** 2.1  
+**Datum:** 12 december 2025  
 **Project:** HOWEST TIC – CFAI Eindopdracht
 
 ---
@@ -113,7 +113,7 @@ Het systeem gebruikt een **Unified AI Module** (`ai_models.py`) met drie compone
 
 **Functie:** `train_and_save_models()`
 
-- Laadt real sensor data uit QuestDB (373+ samples)
+- Laadt real sensor data uit QuestDB (374+ samples)
 - Fallback naar synthetische data bij < 100 samples
 - Traint Isolation Forest model
 - Slaat `model.pkl` en `scaler.pkl` op
@@ -355,7 +355,9 @@ Functionaliteit:
 - ✓ Start Streamlit dashboard (achtergrond)
 - ✓ Start main.py monitoring (achtergrond)
 - ✓ Test connecties
-- ✓ Toon URLs en PIDs
+- ✓ Detecteert Tailscale hostname automatisch
+- ✓ Toont lokale én Tailscale URLs
+- ✓ Toon URLs, PIDs en toegangspunten
 
 **Stop alle services:**
 
@@ -381,7 +383,7 @@ Functionaliteit:
 
 **Geïnstalleerd op 3 devices:**
 
-1. **Raspberry Pi 4** - IoT monitoring device
+1. **Raspberry Pi 4** - IoT monitoring device (raspberrypi-lovepreet)
 2. **Laptop** - Development & testing
 3. **Desktop Workstation** - Primary development machine
 
@@ -390,20 +392,48 @@ Functionaliteit:
 - ✓ Alle 3 devices zijn pingable en toegankelijk
 - ✓ Veilige verbinding zonder port forwarding
 - ✓ Remote toegang tot Pi dashboard en QuestDB
-- ✓ Geïntegreerde DNS voor gemakkelijke device discovery
+- ✓ MagicDNS voor hostname-based toegang
+- ✓ Automatisch start bij boot via systemd (enabled)
+- ✓ Tailnet domain: tail815165.ts.net
 
 **Toegang via Tailscale:**
 
 ```bash
-## Ping Raspberry Pi via Tailscale
-ping raspberry-pi-tailscale-name
+# Ping Raspberry Pi via Tailscale
+ping raspberrypi-lovepreet
 
-## SSH via Tailscale
-ssh admin@raspberry-pi-tailscale-name
+# SSH via Tailscale (short name)
+ssh admin@raspberrypi-lovepreet
 
-## Dashboard toegang
-http://raspberry-pi-tailscale-name:8501
+# SSH via Tailscale (full domain)
+ssh admin@raspberrypi-lovepreet.tail815165.ts.net
+
+# Dashboard toegang (short name)
+http://raspberrypi-lovepreet:8501
+
+# Dashboard toegang (full domain)
+http://raspberrypi-lovepreet.tail815165.ts.net:8501
+
+# QuestDB UI
+http://raspberrypi-lovepreet:9000
+http://raspberrypi-lovepreet.tail815165.ts.net:9000
 ```
+
+**Systemd Service:**
+
+Tailscale draait als systemd service en start automatisch bij boot:
+
+```bash
+# Status controleren
+sudo systemctl status tailscaled
+
+# Output toont:
+# Loaded: enabled; preset: enabled
+# Active: active (running)
+# Status: "Connected; LovepreetSinghGhuman@github; 100.95.69.78"
+```
+
+**Belangrijke opmerking:** `tailscale up` is alleen nodig voor initiële authenticatie. De service en verbinding blijven bestaan na reboot.
 
 ---
 
@@ -478,10 +508,10 @@ piNetMon/
 - ✔ Async I/O
 - ✔ Dockerized QuestDB met auto-restart
 - ✔ Unified AI module (consolidated codebase)
-- ✔ Deployment automation scripts
-- ✔ Real data training (373+ samples)
+- ✔ Deployment automation scripts met Tailscale support
+- ✔ Real data training (374+ samples)
 - ✔ QuestDB connection optimalisatie
-- ✔ Tailscale VPN voor veilige remote toegang (3 devices)
+- ✔ Tailscale VPN met MagicDNS (3 devices, auto-start via systemd)
 
 ---
 
@@ -500,11 +530,12 @@ Dit platform combineert edge computing, cloud scalability, real-time analytics, 
 
 **Prestaties:**
 
-- 373+ real sensor samples voor model training
+- 374+ real sensor samples voor model training
 - 15-20s QuestDB timeout optimalisatie
 - Graceful shutdown & startup scripts
 - Background process management
 - Comprehensive logging
+- Tailscale hostname auto-detection in deployment scripts
 
 ---
 
