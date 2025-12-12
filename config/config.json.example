@@ -1,19 +1,19 @@
 {
   "azure": {
-    "subscription_id": "921ad5d6-1557-439f-9b4a-b79c931b64d0",
+    "subscription_id": "sample-subscription-id",
     "iot_hub": {
-      "name": "HowestTICFAILovepreetHub",
-      "resource_group": "CFAI",
-      "device_id": "rapsberry-pi-monitor",
-      "connection_string": "PLACEHOLDER_CONNECTION_STRING"
+      "name": "sample-iot-hub-name",
+      "resource_group": "sample-resource-group",
+      "device_id": "sample-device-id",
+      "connection_string": "HostName=sample-hub.azure-devices.net;DeviceId=sample-device;SharedAccessKey=sample-device-key",
+      "service_connection_string": "HostName=sample-hub.azure-devices.net;SharedAccessKeyName=service;SharedAccessKey=sample-service-key"
     },
-    "cloud": {
-    "anomaly_detection": {
-      "api_key": "PLACEHOLDER_API_KEY"
-    }
-  }
     "storage_account": {
-      "name": "cfaib17b"
+      "name": "sample-storage-account"
+    },
+    "ml": {
+      "workspace_name": "sample-ml-workspace",
+      "resource_group": "sample-ml-resource-group"
     }
   },
   "sensors": {
@@ -36,7 +36,18 @@
   },
   "questdb": {
     "host": "localhost",
-    "port": 9000
+    "port": 9000,
+    "docker": {
+      "container_name": "questdb",
+      "ports": {
+        "http": 9000,
+        "influxdb": 9009,
+        "postgres": 8812,
+        "min_http": 9003
+      },
+      "volume_path": "~/piNetMon/data/questdb",
+      "restart_policy": "unless-stopped"
+    }
   },
   "local_storage": {
     "path": "./data",
@@ -44,7 +55,10 @@
     "retention_days": 7
   },
   "mongodb": {
-    "connection_string": "mongodb+srv://USERNAME:PASSWORD@YOUR_CLUSTER.mongodb.net/",
+    "enabled": true,
+    "connection_string": "mongodb+srv://username:password@samplecluster.mongodb.net/",
+    "database": "sample-database",
+    "collection": "sample-collection"
   },
   "ai_models": {
     "local": {
@@ -55,8 +69,8 @@
     },
     "cloud": {
       "enabled": true,
-      "endpoint": "https://endpoint_name-endpoint.westeurope.inference.ml.azure.com/score",
-      "api_key": "key"
+      "endpoint": "https://sample-ml-endpoint.azure.com/score",
+      "api_key": "sample-api-key"
     }
   },
   "dashboard": {

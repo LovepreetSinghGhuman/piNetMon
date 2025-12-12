@@ -69,4 +69,4 @@ htmlcov/
 
 # Streamlit
 .streamlit/secrets.toml
-EOF
+EOFconfig/config.json

@@ -14,16 +14,26 @@ from azure.ai.ml.entities import (
     CodeConfiguration
 )
 from azure.identity import DefaultAzureCredential
-
-# Configuration
-subscription_id = "921ad5d6-1557-439f-9b4a-b79c931b64d0"
-resource_group = "CFAI"
-workspace_name = "piAIModelCloud"
+import json
 
 # Get paths
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(script_dir)
 models_dir = os.path.join(project_root, "models")
+config_path = os.path.join(project_root, "config", "config.json")
+
+# Load configuration from config.json
+with open(config_path, 'r') as f:
+    config = json.load(f)
+
+azure_config = config.get('azure', {})
+subscription_id = azure_config.get('subscription_id')
+ml_config = azure_config.get('ml', {})
+resource_group = ml_config.get('resource_group')
+workspace_name = ml_config.get('workspace_name')
+
+if not all([subscription_id, resource_group, workspace_name]):
+    raise ValueError("Missing required Azure ML configuration in config.json")
 
 # Connect to workspace
 credential = DefaultAzureCredential()

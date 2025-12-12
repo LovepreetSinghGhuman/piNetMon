@@ -9,6 +9,18 @@ echo "Pi Network Monitor - Shutdown"
 echo "=================================="
 echo ""
 
+# Get script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
+# Load configuration from config.json
+CONFIG_FILE="$SCRIPT_DIR/config/config.json"
+if [ -f "$CONFIG_FILE" ]; then
+    QDB_CONTAINER=$(python3 -c "import json; config=json.load(open('$CONFIG_FILE')); print(config['questdb']['docker']['container_name'])" 2>/dev/null || echo "questdb")
+else
+    QDB_CONTAINER="questdb"
+fi
+
 # Colors for output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -60,8 +72,8 @@ fi
 # 3. Stop QuestDB container
 echo ""
 echo "3. Stopping QuestDB..."
-if docker ps | grep -q questdb; then
-    docker stop questdb
+if docker ps | grep -q "$QDB_CONTAINER"; then
+    docker stop "$QDB_CONTAINER"
     print_status "QuestDB stopped"
 else
     print_warning "QuestDB was not running"
@@ -76,6 +88,6 @@ echo "Running processes:"
 pgrep -af "streamlit|src/main.py" || print_status "No monitoring processes running"
 echo ""
 echo "Docker containers:"
-docker ps --filter "name=questdb" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || print_status "No QuestDB container running"
+docker ps --filter "name=$QDB_CONTAINER" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || print_status "No QuestDB container running"
 echo ""
 print_status "All services stopped!"
