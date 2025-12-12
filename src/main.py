@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from sensor_collector import SensorCollector
 from questdb_storage import QuestDBStorage
-from ai_models import AnomalyDetector, SimpleThresholdDetector, CloudAIService, MockAzureMLClient
+from ai_models import AnomalyDetector, SimpleThresholdDetector, CloudAIService
 from cloud_integration import AzureIoTClient, CloudDataManager
 from mongodb_storage import MongoDBStorage
 
@@ -39,16 +39,12 @@ class PiNetworkMonitor:
             config_path: Path to configuration file (if None, auto-detects)
         """
         if config_path is None:
-            # Auto-detect config path relative to script location
             script_dir = os.path.dirname(os.path.abspath(__file__))
             config_path = os.path.join(script_dir, '..', 'config', 'config.json')
         
         self.config_path = config_path
         self.config = self._load_config()
         self.running = False
-        
-        # Get project root directory
-        self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         
         # Initialize components
         self.sensor_collector = SensorCollector()
@@ -61,6 +57,12 @@ class PiNetworkMonitor:
         )
         self.threshold_detector = SimpleThresholdDetector()
         self.ml_detector = AnomalyDetector()
+        
+        # AI control flags from config
+        ai_config = self.config.get('ai_models', {})
+        self.local_ai_enabled = ai_config.get('local', {}).get('anomaly_detection', {}).get('enabled', True)
+        self.cloud_ai_enabled = ai_config.get('cloud', {}).get('enabled', False)
+        self.anomaly_threshold = ai_config.get('local', {}).get('anomaly_detection', {}).get('threshold', 0.8)
         
         # Initialize cloud components
         self.iot_client: AzureIoTClient = None
@@ -98,8 +100,6 @@ class PiNetworkMonitor:
             await self.iot_client.connect()
             
             self.cloud_manager = CloudDataManager(self.iot_client)
-            
-            # Initialize cloud AI from config
             self.cloud_ai_service = CloudAIService.from_config(self.config)
             
             # Set up message and method handlers
@@ -248,14 +248,30 @@ class PiNetworkMonitor:
         if 'collection_interval' in updates:
             self.config['collection_interval'] = updates['collection_interval']
         
-        # Update AI model thresholds
+        # Update AI model settings
         if 'ai_models' in updates:
+            # Update local AI settings
             if 'local' in updates['ai_models']:
                 local_config = updates['ai_models']['local']
+                if 'enabled' in local_config:
+                    self.local_ai_enabled = local_config['enabled']
+                    logger.info(f"Local AI {'enabled' if self.local_ai_enabled else 'disabled'}")
                 if 'anomaly_detection' in local_config:
                     anomaly_config = local_config['anomaly_detection']
                     if 'thresholds' in anomaly_config:
                         self.threshold_detector.update_thresholds(anomaly_config['thresholds'])
+            
+            # Update cloud AI settings
+            if 'cloud' in updates['ai_models']:
+                cloud_config = updates['ai_models']['cloud']
+                if 'enabled' in cloud_config:
+                    self.cloud_ai_enabled = cloud_config['enabled']
+                    logger.info(f"Cloud AI {'enabled' if self.cloud_ai_enabled else 'disabled'}")
+            
+            # Update anomaly threshold
+            if 'anomaly_threshold' in updates['ai_models']:
+                self.anomaly_threshold = updates['ai_models']['anomaly_threshold']
+                logger.info(f"Anomaly threshold updated to {self.anomaly_threshold}")
         
         # Save updated config to file
         try:
@@ -309,49 +325,56 @@ class PiNetworkMonitor:
             await self.collect_and_process()
         
         elif command == "cleanup_old_data":
-            # QuestDB handles retention via partitioning, but we can log the request
             logger.info("Cleanup command received - QuestDB handles retention automatically")
         
         elif command == "retrain_model":
             # Get recent data and retrain
-            recent_result = self.local_storage.get_recent_data(hours=168)  # 7 days
-            if recent_result and 'dataset' in recent_result:
-                training_data = self._convert_db_to_sensor_format(recent_result)
-                if len(training_data) >= 10:
+            recent_data = self.local_storage.get_recent_data(hours=168)  # 7 days
+            if recent_data and recent_data.get('dataset') and len(recent_data['dataset']) >= 10:
+                training_data = self._convert_db_to_sensor_format(recent_data)
+                try:
                     self.ml_detector.train(training_data)
+                    logger.info(f"Model retrained with {len(training_data)} samples")
+                except Exception as e:
+                    logger.error(f"Model retraining failed: {e}")
     
     def _convert_db_to_sensor_format(self, db_result: dict) -> list:
         """Convert QuestDB query results to sensor data format."""
-        sensor_data_list = []
         if not db_result or 'dataset' not in db_result:
-            return sensor_data_list
+            return []
         
         columns = db_result.get('columns', [])
         dataset = db_result.get('dataset', [])
         
-        # Create column index map
+        # Create column index map with safe defaults
         col_map = {col['name']: i for i, col in enumerate(columns)}
         
+        sensor_data_list = []
         for row in dataset:
-            data = {
-                'timestamp': row[col_map.get('timestamp', 0)],
-                'device_id': row[col_map.get('device_id', 1)],
-                'cpu': {
-                    'temperature': row[col_map.get('cpu_temperature', 2)],
-                    'usage_percent': row[col_map.get('cpu_usage', 3)]
-                },
-                'memory': {
-                    'percent': row[col_map.get('memory_percent', 4)]
-                },
-                'disk': {
-                    'percent': row[col_map.get('disk_percent', 5)]
-                },
-                'network': {
-                    'bytes_sent_mb': row[col_map.get('network_sent_mb', 6)],
-                    'bytes_recv_mb': row[col_map.get('network_recv_mb', 7)]
+            try:
+                data = {
+                    'timestamp': row[col_map.get('timestamp', 0)],
+                    'device_id': row[col_map.get('device_id', 1)],
+                    'cpu': {
+                        'temperature': row[col_map.get('cpu_temperature', 2)],
+                        'usage_percent': row[col_map.get('cpu_usage', 3)]
+                    },
+                    'memory': {
+                        'percent': row[col_map.get('memory_percent', 4)]
+                    },
+                    'disk': {
+                        'percent': row[col_map.get('disk_percent', 5)]
+                    },
+                    'network': {
+                        'bytes_sent_mb': row[col_map.get('network_sent_mb', 6)],
+                        'bytes_recv_mb': row[col_map.get('network_recv_mb', 7)]
+                    }
                 }
-            }
-            sensor_data_list.append(data)
+                sensor_data_list.append(data)
+            except (IndexError, KeyError) as e:
+                logger.warning(f"Skipping malformed row: {e}")
+                continue
+        
         return sensor_data_list
     
     async def collect_and_process(self):
@@ -361,57 +384,48 @@ class PiNetworkMonitor:
             sensor_data = self.sensor_collector.collect_all_data()
             self.stats['total_readings'] += 1
             
-            # Local AI detection
+            # Threshold-based detection
             is_threshold_anomaly, violations = self.threshold_detector.detect(sensor_data)
             
-            # ML detection with fallback if not trained yet
-            try:
-                is_ml_anomaly, ml_score = self.ml_detector.predict(sensor_data)
-            except Exception as ml_error:
-                # Model not trained yet - train it with initial data
-                logger.info(f"ML model not ready ({ml_error}). Training with initial data...")
-                recent_data = self.local_storage.get_recent_data(hours=24)  # Get more data
-                
-                # Handle None or empty result
-                if recent_data and recent_data.get('dataset'):
-                    data_len = len(recent_data['dataset'])
-                else:
-                    data_len = 0
-                
-                if data_len >= 10:
-                    training_data = self._convert_db_to_sensor_format(recent_data['dataset'])
-                    try:
-                        self.ml_detector.train(training_data)
-                        is_ml_anomaly, ml_score = self.ml_detector.predict(sensor_data)
-                    except Exception as train_error:
-                        logger.warning(f"ML training failed: {train_error}. Using threshold only.")
-                        is_ml_anomaly, ml_score = False, 0.0
-                else:
-                    # Not enough data yet, use threshold only
-                    logger.info(f"Not enough data for ML training ({data_len}/10). Using threshold detection only.")
-                    is_ml_anomaly, ml_score = False, 0.0
+            # ML-based detection (only if local AI is enabled)
+            is_ml_anomaly, ml_score = False, 0.0
+            if self.local_ai_enabled:
+                try:
+                    is_ml_anomaly, ml_score = self.ml_detector.predict(sensor_data)
+                except Exception as ml_error:
+                    # Model not trained yet - train it with initial data
+                    logger.info(f"ML model not ready ({ml_error}). Training with initial data...")
+                    recent_data = self.local_storage.get_recent_data(hours=24)
+                    
+                    if recent_data and recent_data.get('dataset') and len(recent_data['dataset']) >= 10:
+                        training_data = self._convert_db_to_sensor_format(recent_data)
+                        try:
+                            self.ml_detector.train(training_data)
+                            is_ml_anomaly, ml_score = self.ml_detector.predict(sensor_data)
+                        except Exception as train_error:
+                            logger.warning(f"ML training failed: {train_error}. Using threshold only.")
+            else:
+                logger.debug("Local AI disabled, skipping ML detection")
             
-            is_anomaly = is_threshold_anomaly or is_ml_anomaly
+            is_anomaly = bool(is_threshold_anomaly or is_ml_anomaly)
             
             if is_anomaly:
                 self.stats['anomalies_detected'] += 1
                 logger.warning(f"Anomaly detected - Threshold: {is_threshold_anomaly}, ML: {is_ml_anomaly}")
             
-            # Convert numpy types to native Python types for JSON serialization
-            is_anomaly = bool(is_anomaly)
-            ml_score = float(ml_score)
-            
             # Store locally in QuestDB
             self.local_storage.save_sensor_data(
                 sensor_data,
-                anomaly_score=ml_score,
+                anomaly_score=float(ml_score),
                 is_anomaly=is_anomaly
             )
             
-            # Cloud AI analysis (if available)
+            # Cloud AI analysis (only if cloud AI is enabled)
             cloud_analysis = None
-            if self.cloud_ai_service:
+            if self.cloud_ai_enabled and self.cloud_ai_service:
                 cloud_analysis = self.cloud_ai_service.analyze_sensor_data(sensor_data)
+            elif not self.cloud_ai_enabled:
+                logger.debug("Cloud AI disabled, skipping cloud analysis")
             
             # Upload to cloud
             if self.cloud_manager:
@@ -419,7 +433,7 @@ class PiNetworkMonitor:
                     **sensor_data,
                     'local_analysis': {
                         'is_anomaly': is_anomaly,
-                        'ml_score': ml_score,
+                        'ml_score': float(ml_score),
                         'threshold_violations': violations
                     }
                 }
@@ -438,7 +452,7 @@ class PiNetworkMonitor:
                     **sensor_data,
                     'local_analysis': {
                         'is_anomaly': is_anomaly,
-                        'ml_score': ml_score,
+                        'ml_score': float(ml_score),
                         'threshold_violations': violations
                     }
                 }
@@ -474,13 +488,14 @@ class PiNetworkMonitor:
     def get_status(self) -> Dict[str, Any]:
         """Get current application status."""
         storage_stats = self.local_storage.get_statistics()
+        uptime = (datetime.now() - datetime.fromisoformat(self.stats['start_time'])).total_seconds()
         
         return {
             'running': self.running,
             'statistics': self.stats,
             'storage': storage_stats,
             'cloud_connected': self.iot_client.is_connected if self.iot_client else False,
-            'uptime_seconds': (datetime.now() - datetime.fromisoformat(self.stats['start_time'])).total_seconds()
+            'uptime_seconds': uptime
         }
     
     async def shutdown(self):
