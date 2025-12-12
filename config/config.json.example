@@ -62,6 +62,8 @@
   },
   "ai_models": {
     "local": {
+      "model_path": "./models/model.pkl",
+      "use_onnx": true,
       "anomaly_detection": {
         "enabled": true,
         "threshold": 0.8
@@ -75,6 +77,15 @@
   },
   "dashboard": {
     "port": 8501,
+    "host": "0.0.0.0",
     "refresh_interval": 5
+  },
+  "logging": {
+    "level": "INFO",
+    "log_dir": "./logs",
+    "files": {
+      "dashboard": "logs/dashboard.log",
+      "main": "logs/monitor.log"
+    }
   }
 }
