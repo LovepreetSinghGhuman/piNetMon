@@ -331,39 +331,73 @@ def main():
                         else:
                             st.error(f"❌ {result}")
             
-            # Update collection interval
+            # Load current twin for pre-populating values
+            current_twin = {}
+            success, twin_data = get_device_twin_rest(device_id, conn_str)
+            if success:
+                current_twin = twin_data.get('properties', {}).get('desired', {})
+            
+            # Update collection interval - Individual sensors
             with st.expander("⏱️ Collection Interval", expanded=False):
-                new_interval = st.number_input(
-                    "Interval (seconds)",
-                    min_value=5,
-                    max_value=300,
-                    value=30,
-                    step=5,
-                    help="How often to collect sensor readings"
+                st.write("Set interval for each sensor (seconds):")
+                
+                # Get current intervals from twin
+                sensors_config = current_twin.get('sensors', {})
+                
+                temp_interval = st.number_input(
+                    "Temperature",
+                    min_value=5, max_value=300, value=sensors_config.get('temperature', {}).get('interval_seconds', 60),
+                    step=5, key="temp_interval"
+                )
+                cpu_interval = st.number_input(
+                    "CPU",
+                    min_value=5, max_value=300, value=sensors_config.get('cpu', {}).get('interval_seconds', 30),
+                    step=5, key="cpu_interval"
+                )
+                mem_interval = st.number_input(
+                    "Memory",
+                    min_value=5, max_value=300, value=sensors_config.get('memory', {}).get('interval_seconds', 30),
+                    step=5, key="mem_interval"
+                )
+                net_interval = st.number_input(
+                    "Network",
+                    min_value=5, max_value=300, value=sensors_config.get('network', {}).get('interval_seconds', 60),
+                    step=5, key="net_interval"
                 )
                 
-                if st.button("Apply Interval", key="apply_interval"):
+                if st.button("Apply Intervals", key="apply_interval"):
                     with st.spinner("Updating device twin..."):
                         desired = {
-                            "collection_interval_seconds": new_interval,
+                            "sensors": {
+                                "temperature": {"interval_seconds": temp_interval},
+                                "cpu": {"interval_seconds": cpu_interval},
+                                "memory": {"interval_seconds": mem_interval},
+                                "network": {"interval_seconds": net_interval}
+                            },
                             "updated_at": datetime.now().isoformat()
                         }
                         success, message = update_device_twin_rest(device_id, conn_str, desired)
                         if success:
                             st.success(f"✅ {message}")
+                            st.rerun()
                         else:
                             st.error(f"❌ {message}")
             
             # Update AI settings
             with st.expander("🤖 AI Model Settings", expanded=False):
-                enable_local = st.checkbox("Enable Local AI", value=True, key="local_ai")
-                enable_cloud = st.checkbox("Enable Cloud AI", value=False, key="cloud_ai")
+                # Get current AI settings from twin
+                ai_config = current_twin.get('ai_models', {})
+                local_config = ai_config.get('local', {})
+                cloud_config = ai_config.get('cloud', {})
+                
+                enable_local = st.checkbox("Enable Local AI", value=local_config.get('enabled', True), key="local_ai")
+                enable_cloud = st.checkbox("Enable Cloud AI", value=cloud_config.get('enabled', False), key="cloud_ai")
                 
                 threshold = st.slider(
                     "Anomaly Threshold",
                     min_value=0.0,
                     max_value=1.0,
-                    value=0.5,
+                    value=float(ai_config.get('anomaly_threshold', 0.5)),
                     step=0.05
                 )
                 
@@ -380,19 +414,23 @@ def main():
                         success, message = update_device_twin_rest(device_id, conn_str, desired)
                         if success:
                             st.success(f"✅ {message}")
+                            st.rerun()
                         else:
                             st.error(f"❌ {message}")
             
             # Toggle sensors
             with st.expander("📡 Sensor Control", expanded=False):
+                # Get current sensor states from twin
+                sensors_config = current_twin.get('sensors', {})
+                
                 col1, col2 = st.columns(2)
                 with col1:
-                    temp_en = st.checkbox("CPU Temp", value=True, key="temp")
-                    cpu_en = st.checkbox("CPU Usage", value=True, key="cpu")
-                    mem_en = st.checkbox("Memory", value=True, key="mem")
+                    temp_en = st.checkbox("CPU Temp", value=sensors_config.get('temperature', {}).get('enabled', True), key="temp")
+                    cpu_en = st.checkbox("CPU Usage", value=sensors_config.get('cpu', {}).get('enabled', True), key="cpu")
+                    mem_en = st.checkbox("Memory", value=sensors_config.get('memory', {}).get('enabled', True), key="mem")
                 with col2:
-                    disk_en = st.checkbox("Disk", value=True, key="disk")
-                    net_en = st.checkbox("Network", value=True, key="net")
+                    disk_en = st.checkbox("Disk", value=sensors_config.get('disk', {}).get('enabled', True), key="disk")
+                    net_en = st.checkbox("Network", value=sensors_config.get('network', {}).get('enabled', True), key="net")
                 
                 if st.button("Apply Sensors", key="apply_sensors"):
                     with st.spinner("Updating device twin..."):
@@ -409,6 +447,7 @@ def main():
                         success, message = update_device_twin_rest(device_id, conn_str, desired)
                         if success:
                             st.success(f"✅ {message}")
+                            st.rerun()
                         else:
                             st.error(f"❌ {message}")
         
