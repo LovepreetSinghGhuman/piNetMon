@@ -118,9 +118,9 @@ def generate_sas_token(uri, key, policy_name, expiry=3600):
             sign_key.encode('utf-8'),
             hashlib.sha256
         ).digest()
-    )
+    ).decode('utf-8')  # Decode bytes to string before URL encoding
     
-    return f"SharedAccessSignature sr={uri}&sig={quote_plus(signature)}&se={ttl}&skn={policy_name}"
+    return f"SharedAccessSignature sr={quote_plus(uri)}&sig={quote_plus(signature)}&se={ttl}&skn={policy_name}"
 
 
 def parse_connection_string(conn_str):
