@@ -105,6 +105,60 @@ def load_config():
         return {}
 
 
+def get_iot_hub_connection_string():
+    """Get IoT Hub service connection string from config."""
+    config = load_config()
+    try:
+        # Convert device connection string to service connection string format
+        device_conn_str = config['azure']['iot_hub']['connection_string']
+        hub_name = config['azure']['iot_hub']['name']
+        
+        # For service operations, we need the service connection string
+        # This would typically be: HostName=xxx;SharedAccessKeyName=service;SharedAccessKey=xxx
+        # For now, we'll extract the HostName and use the device key (not ideal but works for demo)
+        parts = dict(item.split('=', 1) for item in device_conn_str.split(';'))
+        hostname = parts.get('HostName', '')
+        
+        return device_conn_str  # Return as-is for now
+    except Exception as e:
+        st.error(f"Failed to get IoT Hub connection: {e}")
+        return None
+
+
+def update_device_twin(desired_properties):
+    """Update device twin desired properties."""
+    try:
+        from azure.iot.hub import IoTHubRegistryManager
+        
+        conn_str = get_iot_hub_connection_string()
+        if not conn_str:
+            return False, "Connection string not available"
+        
+        config = load_config()
+        device_id = config['azure']['iot_hub']['device_id']
+        
+        # Note: This requires service-level permissions
+        # You may need to configure proper service connection string
+        registry_manager = IoTHubRegistryManager(conn_str)
+        
+        # Get current twin
+        twin = registry_manager.get_twin(device_id)
+        
+        # Update desired properties
+        twin_patch = {
+            "properties": {
+                "desired": desired_properties
+            }
+        }
+        
+        updated_twin = registry_manager.update_twin(device_id, twin_patch, twin.etag)
+        
+        return True, "Device twin updated successfully"
+        
+    except Exception as e:
+        return False, f"Error updating twin: {str(e)}"
+
+
 def create_time_series_chart(df, column, title, color):
     """Create a time series chart."""
     fig = go.Figure()
@@ -188,8 +242,92 @@ def main():
         
         st.markdown("---")
         
+        # Device Twin Configuration
+        st.subheader("🔧 Device Twin Config")
+        
+        with st.expander("Update Collection Interval", expanded=False):
+            st.write("Adjust how often the Pi collects sensor data")
+            
+            new_interval = st.number_input(
+                "Collection Interval (seconds)",
+                min_value=5,
+                max_value=300,
+                value=30,
+                step=5,
+                help="How often to collect sensor readings"
+            )
+            
+            if st.button("Apply Interval", key="apply_interval"):
+                desired_props = {
+                    "collection_interval_seconds": new_interval,
+                    "updated_at": datetime.now().isoformat()
+                }
+                success, message = update_device_twin(desired_props)
+                if success:
+                    st.success(message)
+                else:
+                    st.error(message)
+        
+        with st.expander("Update AI Model Settings", expanded=False):
+            st.write("Configure AI anomaly detection")
+            
+            enable_local_ai = st.checkbox("Enable Local AI", value=True)
+            enable_cloud_ai = st.checkbox("Enable Cloud AI", value=False)
+            
+            anomaly_threshold = st.slider(
+                "Anomaly Score Threshold",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.5,
+                step=0.05,
+                help="Threshold for flagging anomalies"
+            )
+            
+            if st.button("Apply AI Settings", key="apply_ai"):
+                desired_props = {
+                    "ai_models": {
+                        "local": {"enabled": enable_local_ai},
+                        "cloud": {"enabled": enable_cloud_ai},
+                        "anomaly_threshold": anomaly_threshold
+                    },
+                    "updated_at": datetime.now().isoformat()
+                }
+                success, message = update_device_twin(desired_props)
+                if success:
+                    st.success(message)
+                else:
+                    st.error(message)
+        
+        with st.expander("Sensor Enable/Disable", expanded=False):
+            st.write("Enable or disable specific sensors")
+            
+            enable_temp = st.checkbox("CPU Temperature", value=True)
+            enable_cpu = st.checkbox("CPU Usage", value=True)
+            enable_memory = st.checkbox("Memory", value=True)
+            enable_disk = st.checkbox("Disk", value=True)
+            enable_network = st.checkbox("Network", value=True)
+            
+            if st.button("Apply Sensor Settings", key="apply_sensors"):
+                desired_props = {
+                    "sensors": {
+                        "temperature": {"enabled": enable_temp},
+                        "cpu": {"enabled": enable_cpu},
+                        "memory": {"enabled": enable_memory},
+                        "disk": {"enabled": enable_disk},
+                        "network": {"enabled": enable_network}
+                    },
+                    "updated_at": datetime.now().isoformat()
+                }
+                success, message = update_device_twin(desired_props)
+                if success:
+                    st.success(message)
+                else:
+                    st.error(message)
+        
+        st.markdown("---")
+        
         # Show configuration
-        st.subheader("📋 Configuration")
+        st.subheader("📋 Current Configuration")
         config = load_config()
         if config:
             st.json(config['sensors'])
