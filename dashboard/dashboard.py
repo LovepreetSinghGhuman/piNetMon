@@ -1,16 +1,21 @@
 """
 Streamlit Dashboard for Raspberry Pi Network Monitor
-Provides real-time visualization and control interface.
+Provides real-time visualization and device twin control.
 """
 
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from datetime import datetime, timedelta
+from datetime import datetime
 import sys
 import os
 import json
+import requests
+import hmac
+import hashlib
+import base64
+from urllib.parse import quote_plus
 
 # Add src directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -28,18 +33,14 @@ st.set_page_config(
 # Custom CSS
 st.markdown("""
 <style>
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 20px;
-        border-radius: 10px;
-        margin: 10px 0;
-    }
     .anomaly-alert {
         background-color: #ff4b4b;
         color: white;
         padding: 10px;
         border-radius: 5px;
         margin: 10px 0;
+        text-align: center;
+        font-weight: bold;
     }
     .normal-status {
         background-color: #00cc00;
@@ -47,6 +48,8 @@ st.markdown("""
         padding: 10px;
         border-radius: 5px;
         margin: 10px 0;
+        text-align: center;
+        font-weight: bold;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -63,38 +66,8 @@ def get_storage():
     )
 
 
-@st.cache_data(ttl=5)
-def load_recent_data(hours):
-    """Load recent data with caching."""
-    storage = get_storage()
-    result = storage.get_recent_data(hours=hours)
-    
-    # Convert QuestDB result to DataFrame format
-    if result and 'dataset' in result:
-        columns = [col['name'] for col in result.get('columns', [])]
-        data = result.get('dataset', [])
-        df = pd.DataFrame(data, columns=columns)
-        return df.to_dict('records') if not df.empty else []
-    return []
-
-
-@st.cache_data(ttl=30)
-def load_statistics():
-    """Load storage statistics."""
-    storage = get_storage()
-    result = storage.get_statistics()
-    
-    # Convert QuestDB result to dict format
-    if result and 'dataset' in result and len(result['dataset']) > 0:
-        columns = [col['name'] for col in result.get('columns', [])]
-        data = result['dataset'][0]
-        return dict(zip(columns, data))
-    return {}
-
-
 def load_config():
     """Load configuration."""
-    # Use absolute path relative to dashboard script location
     dashboard_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(dashboard_dir, '..', 'config', 'config.json')
     try:
@@ -105,59 +78,153 @@ def load_config():
         return {}
 
 
-def get_iot_hub_connection_string():
-    """Get IoT Hub service connection string from config."""
-    config = load_config()
+def load_recent_data(hours):
+    """Load recent data from QuestDB."""
+    storage = get_storage()
+    result = storage.get_recent_data(hours=hours)
+    
+    if result and 'dataset' in result:
+        columns = [col['name'] for col in result.get('columns', [])]
+        data = result.get('dataset', [])
+        if data:
+            df = pd.DataFrame(data, columns=columns)
+            return df
+    return pd.DataFrame()
+
+
+def load_statistics():
+    """Load storage statistics."""
+    storage = get_storage()
+    result = storage.get_statistics()
+    
+    if result and 'dataset' in result and result['dataset']:
+        columns = [col['name'] for col in result.get('columns', [])]
+        data = result['dataset'][0]
+        return dict(zip(columns, data))
+    return {}
+
+
+# ============================================================================
+# DEVICE TWIN MANAGEMENT - Using REST API (no azure-iot-hub package needed)
+# ============================================================================
+
+def generate_sas_token(uri, key, policy_name, expiry=3600):
+    """Generate SAS token for Azure IoT Hub authentication."""
+    ttl = int(datetime.now().timestamp()) + expiry
+    sign_key = f"{uri}\n{ttl}"
+    signature = base64.b64encode(
+        hmac.new(
+            base64.b64decode(key),
+            sign_key.encode('utf-8'),
+            hashlib.sha256
+        ).digest()
+    )
+    
+    return f"SharedAccessSignature sr={uri}&sig={quote_plus(signature)}&se={ttl}&skn={policy_name}"
+
+
+def parse_connection_string(conn_str):
+    """Parse IoT Hub connection string."""
+    parts = {}
+    for item in conn_str.split(';'):
+        if '=' in item:
+            key, value = item.split('=', 1)
+            parts[key] = value
+    return parts
+
+
+def get_device_twin_rest(device_id, conn_str):
+    """Get device twin using REST API."""
     try:
-        # Convert device connection string to service connection string format
-        device_conn_str = config['azure']['iot_hub']['connection_string']
-        hub_name = config['azure']['iot_hub']['name']
-        
-        # For service operations, we need the service connection string
-        # This would typically be: HostName=xxx;SharedAccessKeyName=service;SharedAccessKey=xxx
-        # For now, we'll extract the HostName and use the device key (not ideal but works for demo)
-        parts = dict(item.split('=', 1) for item in device_conn_str.split(';'))
+        parts = parse_connection_string(conn_str)
         hostname = parts.get('HostName', '')
+        key = parts.get('SharedAccessKey', '')
+        policy = parts.get('SharedAccessKeyName', 'iothubowner')
         
-        return device_conn_str  # Return as-is for now
+        # Generate SAS token
+        resource_uri = hostname
+        sas_token = generate_sas_token(resource_uri, key, policy)
+        
+        # Make REST API call
+        url = f"https://{hostname}/twins/{device_id}?api-version=2021-04-12"
+        headers = {
+            'Authorization': sas_token,
+            'Content-Type': 'application/json'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            return True, response.json()
+        else:
+            return False, f"Error {response.status_code}: {response.text}"
+            
     except Exception as e:
-        st.error(f"Failed to get IoT Hub connection: {e}")
-        return None
+        return False, f"Exception: {str(e)}"
 
 
-def update_device_twin(desired_properties):
-    """Update device twin desired properties."""
+def update_device_twin_rest(device_id, conn_str, desired_properties):
+    """Update device twin desired properties using REST API."""
     try:
-        from azure.iot.hub import IoTHubRegistryManager
+        parts = parse_connection_string(conn_str)
+        hostname = parts.get('HostName', '')
+        key = parts.get('SharedAccessKey', '')
+        policy = parts.get('SharedAccessKeyName', 'iothubowner')
         
-        conn_str = get_iot_hub_connection_string()
-        if not conn_str:
-            return False, "Connection string not available"
+        # Get current twin first (need etag)
+        success, twin = get_device_twin_rest(device_id, conn_str)
+        if not success:
+            return False, twin
         
-        config = load_config()
-        device_id = config['azure']['iot_hub']['device_id']
+        etag = twin.get('etag', '*')
         
-        # Note: This requires service-level permissions
-        # You may need to configure proper service connection string
-        registry_manager = IoTHubRegistryManager(conn_str)
+        # Generate SAS token
+        resource_uri = hostname
+        sas_token = generate_sas_token(resource_uri, key, policy)
         
-        # Get current twin
-        twin = registry_manager.get_twin(device_id)
-        
-        # Update desired properties
-        twin_patch = {
+        # Prepare patch
+        patch = {
             "properties": {
                 "desired": desired_properties
             }
         }
         
-        updated_twin = registry_manager.update_twin(device_id, twin_patch, twin.etag)
+        # Make REST API call
+        url = f"https://{hostname}/twins/{device_id}?api-version=2021-04-12"
+        headers = {
+            'Authorization': sas_token,
+            'Content-Type': 'application/json',
+            'If-Match': etag
+        }
         
-        return True, "Device twin updated successfully"
+        response = requests.patch(url, headers=headers, json=patch, timeout=10)
         
+        if response.status_code == 200:
+            return True, "Device twin updated successfully!"
+        else:
+            return False, f"Error {response.status_code}: {response.text}"
+            
     except Exception as e:
-        return False, f"Error updating twin: {str(e)}"
+        return False, f"Exception: {str(e)}"
 
+
+def get_iot_hub_info():
+    """Get IoT Hub connection info from config."""
+    config = load_config()
+    azure_config = config.get('azure', {})
+    iot_hub = azure_config.get('iot_hub', {})
+    
+    # For service operations, we need a connection string with service/registry permissions
+    # This should be in your config as 'service_connection_string'
+    conn_str = iot_hub.get('service_connection_string') or iot_hub.get('connection_string')
+    device_id = iot_hub.get('device_id')
+    
+    return conn_str, device_id
+
+
+# ============================================================================
+# VISUALIZATION FUNCTIONS
+# ============================================================================
 
 def create_time_series_chart(df, column, title, color):
     """Create a time series chart."""
@@ -214,159 +281,172 @@ def main():
     """Main dashboard function."""
     st.title("🔍 Raspberry Pi Network Monitor Dashboard")
     
+    # Get IoT Hub connection info
+    conn_str, device_id = get_iot_hub_info()
+    twin_available = bool(conn_str and device_id)
+    
     # Sidebar
     with st.sidebar:
         st.header("⚙️ Settings")
         
         # Time range selector
-        time_range = st.selectbox(
+        time_options = {
+            "Last 1 hour": 1,
+            "Last 6 hours": 6,
+            "Last 12 hours": 12,
+            "Last 24 hours": 24,
+            "Last 2 days": 48,
+            "Last week": 168
+        }
+        
+        time_label = st.selectbox(
             "Time Range",
-            options=[1, 6, 12, 24, 48, 168],
-            format_func=lambda x: f"Last {x} hours" if x < 24 else f"Last {x//24} days",
+            options=list(time_options.keys()),
             index=3
         )
-        
-        # Refresh interval
-        refresh_interval = st.number_input(
-            "Auto-refresh (seconds)",
-            min_value=5,
-            max_value=300,
-            value=30,
-            step=5
-        )
+        time_range = time_options[time_label]
         
         # Manual refresh button
         if st.button("🔄 Refresh Now"):
-            st.cache_data.clear()
             st.rerun()
         
         st.markdown("---")
         
         # Device Twin Configuration
-        st.subheader("🔧 Device Twin Config")
+        st.subheader("🔧 Device Twin Control")
         
-        with st.expander("Update Collection Interval", expanded=False):
-            st.write("Adjust how often the Pi collects sensor data")
+        if not twin_available:
+            st.warning("⚠️ IoT Hub not configured. Add 'service_connection_string' to config.json")
+        else:
+            # View current twin
+            with st.expander("📖 View Current Twin", expanded=False):
+                if st.button("Fetch Twin", key="fetch_twin"):
+                    with st.spinner("Fetching device twin..."):
+                        success, result = get_device_twin_rest(device_id, conn_str)
+                        if success:
+                            st.success("✅ Twin fetched successfully!")
+                            st.json(result.get('properties', {}).get('desired', {}))
+                        else:
+                            st.error(f"❌ {result}")
             
-            new_interval = st.number_input(
-                "Collection Interval (seconds)",
-                min_value=5,
-                max_value=300,
-                value=30,
-                step=5,
-                help="How often to collect sensor readings"
-            )
+            # Update collection interval
+            with st.expander("⏱️ Collection Interval", expanded=False):
+                new_interval = st.number_input(
+                    "Interval (seconds)",
+                    min_value=5,
+                    max_value=300,
+                    value=30,
+                    step=5,
+                    help="How often to collect sensor readings"
+                )
+                
+                if st.button("Apply Interval", key="apply_interval"):
+                    with st.spinner("Updating device twin..."):
+                        desired = {
+                            "collection_interval_seconds": new_interval,
+                            "updated_at": datetime.now().isoformat()
+                        }
+                        success, message = update_device_twin_rest(device_id, conn_str, desired)
+                        if success:
+                            st.success(f"✅ {message}")
+                        else:
+                            st.error(f"❌ {message}")
             
-            if st.button("Apply Interval", key="apply_interval"):
-                desired_props = {
-                    "collection_interval_seconds": new_interval,
-                    "updated_at": datetime.now().isoformat()
-                }
-                success, message = update_device_twin(desired_props)
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
-        
-        with st.expander("Update AI Model Settings", expanded=False):
-            st.write("Configure AI anomaly detection")
+            # Update AI settings
+            with st.expander("🤖 AI Model Settings", expanded=False):
+                enable_local = st.checkbox("Enable Local AI", value=True, key="local_ai")
+                enable_cloud = st.checkbox("Enable Cloud AI", value=False, key="cloud_ai")
+                
+                threshold = st.slider(
+                    "Anomaly Threshold",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=0.5,
+                    step=0.05
+                )
+                
+                if st.button("Apply AI Settings", key="apply_ai"):
+                    with st.spinner("Updating device twin..."):
+                        desired = {
+                            "ai_models": {
+                                "local": {"enabled": enable_local},
+                                "cloud": {"enabled": enable_cloud},
+                                "anomaly_threshold": threshold
+                            },
+                            "updated_at": datetime.now().isoformat()
+                        }
+                        success, message = update_device_twin_rest(device_id, conn_str, desired)
+                        if success:
+                            st.success(f"✅ {message}")
+                        else:
+                            st.error(f"❌ {message}")
             
-            enable_local_ai = st.checkbox("Enable Local AI", value=True)
-            enable_cloud_ai = st.checkbox("Enable Cloud AI", value=False)
-            
-            anomaly_threshold = st.slider(
-                "Anomaly Score Threshold",
-                min_value=0.0,
-                max_value=1.0,
-                value=0.5,
-                step=0.05,
-                help="Threshold for flagging anomalies"
-            )
-            
-            if st.button("Apply AI Settings", key="apply_ai"):
-                desired_props = {
-                    "ai_models": {
-                        "local": {"enabled": enable_local_ai},
-                        "cloud": {"enabled": enable_cloud_ai},
-                        "anomaly_threshold": anomaly_threshold
-                    },
-                    "updated_at": datetime.now().isoformat()
-                }
-                success, message = update_device_twin(desired_props)
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
-        
-        with st.expander("Sensor Enable/Disable", expanded=False):
-            st.write("Enable or disable specific sensors")
-            
-            enable_temp = st.checkbox("CPU Temperature", value=True)
-            enable_cpu = st.checkbox("CPU Usage", value=True)
-            enable_memory = st.checkbox("Memory", value=True)
-            enable_disk = st.checkbox("Disk", value=True)
-            enable_network = st.checkbox("Network", value=True)
-            
-            if st.button("Apply Sensor Settings", key="apply_sensors"):
-                desired_props = {
-                    "sensors": {
-                        "temperature": {"enabled": enable_temp},
-                        "cpu": {"enabled": enable_cpu},
-                        "memory": {"enabled": enable_memory},
-                        "disk": {"enabled": enable_disk},
-                        "network": {"enabled": enable_network}
-                    },
-                    "updated_at": datetime.now().isoformat()
-                }
-                success, message = update_device_twin(desired_props)
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
+            # Toggle sensors
+            with st.expander("📡 Sensor Control", expanded=False):
+                col1, col2 = st.columns(2)
+                with col1:
+                    temp_en = st.checkbox("CPU Temp", value=True, key="temp")
+                    cpu_en = st.checkbox("CPU Usage", value=True, key="cpu")
+                    mem_en = st.checkbox("Memory", value=True, key="mem")
+                with col2:
+                    disk_en = st.checkbox("Disk", value=True, key="disk")
+                    net_en = st.checkbox("Network", value=True, key="net")
+                
+                if st.button("Apply Sensors", key="apply_sensors"):
+                    with st.spinner("Updating device twin..."):
+                        desired = {
+                            "sensors": {
+                                "temperature": {"enabled": temp_en},
+                                "cpu": {"enabled": cpu_en},
+                                "memory": {"enabled": mem_en},
+                                "disk": {"enabled": disk_en},
+                                "network": {"enabled": net_en}
+                            },
+                            "updated_at": datetime.now().isoformat()
+                        }
+                        success, message = update_device_twin_rest(device_id, conn_str, desired)
+                        if success:
+                            st.success(f"✅ {message}")
+                        else:
+                            st.error(f"❌ {message}")
         
         st.markdown("---")
-        
-        # Show configuration
-        st.subheader("📋 Current Configuration")
-        config = load_config()
-        if config:
-            st.json(config['sensors'])
+        st.caption("💡 Changes take effect on next device sync")
     
     # Load data
     try:
-        data = load_recent_data(time_range)
+        df = load_recent_data(time_range)
         stats = load_statistics()
         
-        if not data:
-            st.warning("No data available. Make sure the monitoring application is running.")
+        if df.empty:
+            st.warning("⚠️ No data available. Make sure the monitoring application is running.")
             return
         
-        # Convert to DataFrame
-        df = pd.DataFrame(data)
+        # Process data
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df = df.sort_values('timestamp')
-        
-        # Get latest reading
         latest = df.iloc[-1]
         
         # Status Overview
-        st.header("📊 Current Status")
+        st.header("📊 System Overview")
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric(
                 label="Total Readings",
-                value=stats.get('total_records', 0),
-                delta=None
+                value=f"{stats.get('total_records', 0):,}"
             )
         
         with col2:
-            anomaly_rate = (stats.get('anomaly_count', 0) / max(stats.get('total_records', 1), 1)) * 100
+            total = max(stats.get('total_records', 1), 1)
+            anomaly_count = stats.get('anomaly_count', 0)
+            anomaly_rate = (anomaly_count / total) * 100
             st.metric(
-                label="Anomalies Detected",
-                value=stats.get('anomaly_count', 0),
-                delta=f"{anomaly_rate:.1f}%"
+                label="Anomalies",
+                value=anomaly_count,
+                delta=f"{anomaly_rate:.1f}%",
+                delta_color="inverse"
             )
         
         with col3:
@@ -399,7 +479,7 @@ def main():
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            temp = latest.get('cpu_temperature')
+            temp = latest.get('cpu_temperature', 0)
             st.plotly_chart(
                 create_gauge_chart(temp if temp else 0, "CPU Temp (°C)", 100, 75),
                 use_container_width=True
@@ -424,7 +504,7 @@ def main():
             )
         
         # Time Series Charts
-        st.header("📉 Historical Data")
+        st.header("📉 Historical Trends")
         
         tab1, tab2, tab3, tab4 = st.tabs(["CPU", "Memory", "Disk", "Network"])
         
@@ -436,6 +516,8 @@ def main():
                         create_time_series_chart(df, 'cpu_temperature', 'CPU Temperature (°C)', 'red'),
                         use_container_width=True
                     )
+                else:
+                    st.info("CPU temperature data not available")
             with col2:
                 st.plotly_chart(
                     create_time_series_chart(df, 'cpu_usage', 'CPU Usage (%)', 'orange'),
@@ -487,50 +569,51 @@ def main():
         anomalies = df[df['is_anomaly'] == True]
         
         if not anomalies.empty:
-            st.write(f"Found {len(anomalies)} anomalies in the selected time range")
+            st.warning(f"Found {len(anomalies)} anomalies in the selected time range")
             
-            # Show anomaly distribution over time
+            # Anomaly score over time
             fig = px.scatter(
                 df,
                 x='timestamp',
                 y='anomaly_score',
                 color='is_anomaly',
                 title='Anomaly Score Over Time',
-                color_discrete_map={0: 'green', 1: 'red'},
-                labels={'is_anomaly': 'Is Anomaly', 'anomaly_score': 'Anomaly Score'}
+                color_discrete_map={False: 'green', True: 'red'},
+                labels={'is_anomaly': 'Anomaly', 'anomaly_score': 'Score'}
             )
             st.plotly_chart(fig, use_container_width=True)
             
             # Recent anomalies table
             st.subheader("Recent Anomalies")
-            anomaly_table = anomalies[['timestamp', 'cpu_temperature', 'cpu_usage', 
-                                       'memory_percent', 'disk_percent', 'anomaly_score']].tail(10)
+            display_cols = ['timestamp', 'cpu_temperature', 'cpu_usage', 
+                          'memory_percent', 'disk_percent', 'anomaly_score']
+            available_cols = [col for col in display_cols if col in anomalies.columns]
+            anomaly_table = anomalies[available_cols].tail(10)
             st.dataframe(anomaly_table, use_container_width=True)
         else:
-            st.success("No anomalies detected in the selected time range! 🎉")
+            st.success("✅ No anomalies detected in the selected time range!")
         
-        # Raw Data Table
-        with st.expander("📋 View Raw Data"):
-            st.dataframe(df.tail(50), use_container_width=True)
+        # Raw Data
+        with st.expander("📋 Raw Data"):
+            st.dataframe(df.tail(100), use_container_width=True)
             
             # Download button
             csv = df.to_csv(index=False)
             st.download_button(
-                label="⬇️ Download CSV",
+                label="📥 Download CSV",
                 data=csv,
                 file_name=f"sensor_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv"
             )
         
+        # Footer
+        st.markdown("---")
+        st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
     except Exception as e:
-        st.error(f"Error loading data: {e}")
-        st.exception(e)
-    
-    # Auto-refresh
-    if refresh_interval > 0:
-        import time
-        time.sleep(refresh_interval)
-        st.rerun()
+        st.error(f"❌ Error loading data: {e}")
+        with st.expander("Error Details"):
+            st.exception(e)
 
 
 if __name__ == "__main__":
