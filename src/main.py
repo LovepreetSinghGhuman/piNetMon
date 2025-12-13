@@ -192,8 +192,9 @@ class PiNetworkMonitor:
         # Sensors
         if "sensors" in updates:
             for s, v in updates["sensors"].items():
-                if s in self.config["sensors"]:
-                    self.config["sensors"][s].update(v)
+                if s not in self.config.get("sensors", {}):
+                    self.config.setdefault("sensors", {})[s] = {}
+                self.config["sensors"][s].update(v)
 
             enabled = {k: v.get("enabled", True)
                        for k, v in self.config["sensors"].items()}
@@ -203,27 +204,56 @@ class PiNetworkMonitor:
         if "collection_interval" in updates:
             self.config["collection_interval"] = updates["collection_interval"]
 
-        # AI
+        # AI - FIXED: Now properly saves to config
         if "ai_models" in updates:
             ai = updates["ai_models"]
+            
+            # Ensure ai_models exists in config
+            if "ai_models" not in self.config:
+                self.config["ai_models"] = {}
 
             # Local
-            local = ai.get("local", {})
-            local_anom = local.get("anomaly_detection", {})
-            if "enabled" in local:
-                self.local_ai_enabled = local["enabled"]
-            if "thresholds" in local_anom:
-                self.threshold_detector.update_thresholds(local_anom["thresholds"])
+            if "local" in ai:
+                local = ai["local"]
+                if "local" not in self.config["ai_models"]:
+                    self.config["ai_models"]["local"] = {}
+                
+                # Update enabled state
+                if "enabled" in local:
+                    self.config["ai_models"]["local"]["enabled"] = local["enabled"]
+                    self.local_ai_enabled = local["enabled"]
+                
+                # Update anomaly detection settings
+                if "anomaly_detection" in local:
+                    local_anom = local["anomaly_detection"]
+                    if "anomaly_detection" not in self.config["ai_models"]["local"]:
+                        self.config["ai_models"]["local"]["anomaly_detection"] = {}
+                    
+                    if "enabled" in local_anom:
+                        self.config["ai_models"]["local"]["anomaly_detection"]["enabled"] = local_anom["enabled"]
+                        self.local_ai_enabled = local_anom["enabled"]
+                    
+                    if "thresholds" in local_anom:
+                        self.config["ai_models"]["local"]["anomaly_detection"]["thresholds"] = local_anom["thresholds"]
+                        self.threshold_detector.update_thresholds(local_anom["thresholds"])
 
             # Cloud
-            cloud_cfg = ai.get("cloud", {})
-            if "enabled" in cloud_cfg:
-                self.cloud_ai_enabled = cloud_cfg["enabled"]
+            if "cloud" in ai:
+                cloud_cfg = ai["cloud"]
+                if "cloud" not in self.config["ai_models"]:
+                    self.config["ai_models"]["cloud"] = {}
+                
+                if "enabled" in cloud_cfg:
+                    self.config["ai_models"]["cloud"]["enabled"] = cloud_cfg["enabled"]
+                    self.cloud_ai_enabled = cloud_cfg["enabled"]
 
+            # Anomaly threshold
             if "anomaly_threshold" in ai:
+                self.config["ai_models"]["anomaly_threshold"] = ai["anomaly_threshold"]
                 self.anomaly_threshold = ai["anomaly_threshold"]
 
         self._save_config()
+        logger.info("Configuration updated and saved")
 
     # ---------------------------------------------------------------
     # DEVICE TWIN REPORT
