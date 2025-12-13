@@ -43,18 +43,35 @@ print("Connected to Azure ML workspace")
 
 # Register the model with flattened structure
 print("Registering model...")
-# Create temp directory and copy pkl files directly (flatten structure)
+# Create temp directory and copy model files directly (flatten structure)
 temp_dir = tempfile.mkdtemp()
 try:
-    shutil.copy(os.path.join(models_dir, "model.pkl"), os.path.join(temp_dir, "model.pkl"))
-    shutil.copy(os.path.join(models_dir, "scaler.pkl"), os.path.join(temp_dir, "scaler.pkl"))
+    # Copy ONNX models if they exist, otherwise PKL
+    onnx_model = os.path.join(models_dir, "model.onnx")
+    onnx_scaler = os.path.join(models_dir, "scaler.onnx")
+    pkl_model = os.path.join(models_dir, "model.pkl")
+    pkl_scaler = os.path.join(models_dir, "scaler.pkl")
+    
+    if os.path.exists(onnx_model) and os.path.exists(onnx_scaler):
+        print("Using ONNX models...")
+        shutil.copy(onnx_model, os.path.join(temp_dir, "model.onnx"))
+        shutil.copy(onnx_scaler, os.path.join(temp_dir, "scaler.onnx"))
+        model_type = "onnx"
+    elif os.path.exists(pkl_model) and os.path.exists(pkl_scaler):
+        print("Using PKL models...")
+        shutil.copy(pkl_model, os.path.join(temp_dir, "model.pkl"))
+        shutil.copy(pkl_scaler, os.path.join(temp_dir, "scaler.pkl"))
+        model_type = "pkl"
+    else:
+        raise FileNotFoundError("No trained models found. Run 'python3 src/ai_models.py' first.")
+    
     print(f"Created flattened model directory at: {temp_dir}")
     
     model = Model(
         path=temp_dir,
         type="custom_model",
         name="pi-anomaly-detector",
-        description="Anomaly detection model for Raspberry Pi monitoring"
+        description=f"Anomaly detection model ({model_type}) for Raspberry Pi monitoring"
     )
     registered_model = ml_client.models.create_or_update(model)
     print(f"Model registered: {registered_model.name} version {registered_model.version}")
@@ -104,19 +121,24 @@ ml_client.online_endpoints.begin_create_or_update(endpoint).result()
 
 # Get endpoint details
 endpoint_details = ml_client.online_endpoints.get(endpoint_name)
-print(f"\nEndpoint URL: {endpoint_details.scoring_uri}")
-print(f"Primary Key: {ml_client.online_endpoints.get_keys(endpoint_name).primary_key}")
+primary_key = ml_client.online_endpoints.get_keys(endpoint_name).primary_key
 
-print("\n✅ Deployment complete!")
-print("\nUpdate your config/config.json with:")
-print(f"""
+print(f"\n✅ Deployment complete!")
+print(f"\nEndpoint URL: {endpoint_details.scoring_uri}")
+print(f"Primary Key: {primary_key}")
+
+print("\n📝 Update your config/config.json with:")
+print(f'''
 {{
   "ai_models": {{
     "cloud": {{
+      "enabled": true,
       "endpoint": "{endpoint_details.scoring_uri}",
-      "api_key": "[YOUR_PRIMARY_KEY]"
+      "api_key": "{primary_key}"
     }}
   }}
 }}
-""")
-print("\nThe cloud AI is accessed via the CloudAIService in src/ai_models.py")
+''')
+
+print("\n💡 The cloud AI is accessed via the CloudAIService in src/ai_models.py")
+print("   Enable/disable cloud AI from the dashboard or by updating device twin.")

@@ -50,7 +50,19 @@ class MongoDBStorage:
 
     def connect(self):
         try:
-            self.client = MongoClient(CONNECTION_STRING, serverSelectionTimeoutMS=5000)
+            # Configure DNS resolver with fallback to Google DNS for MongoDB Atlas
+            import dns.resolver
+            resolver = dns.resolver.Resolver(configure=False)
+            resolver.nameservers = ['8.8.8.8', '8.8.4.4', '1.1.1.1']  # Google & Cloudflare DNS
+            resolver.timeout = 5
+            resolver.lifetime = 5
+            dns.resolver.default_resolver = resolver
+            
+            self.client = MongoClient(
+                CONNECTION_STRING, 
+                serverSelectionTimeoutMS=10000,  # Increase timeout
+                connectTimeoutMS=10000
+            )
             self.client.admin.command("ping")
             self.collection = self.client[DB_NAME][COLLECTION_NAME]
             self.is_connected = True

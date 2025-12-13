@@ -126,14 +126,17 @@ class PiNetworkMonitor:
 
             await self._report_configuration()
 
-            # MongoDB optional
-            mcfg = self.config.get("mongodb", {})
-            if mcfg.get("enabled", False):
-                self.mongodb_storage = MongoDBStorage(
-                    mcfg["connection_string"],
-                    mcfg.get("database", "piNetMon"),
-                    mcfg.get("collection", "sensor_data")
-                )
+            # MongoDB - Required backup storage
+            try:
+                self.mongodb_storage = MongoDBStorage()
+                if self.mongodb_storage.is_connected:
+                    logger.info("✅ MongoDB backup storage connected")
+                else:
+                    logger.warning("⚠️ MongoDB backup storage failed to connect - continuing without backup")
+            except Exception as mongo_error:
+                logger.error(f"❌ MongoDB backup storage initialization failed: {mongo_error}")
+                logger.warning("Continuing without MongoDB backup storage")
+                self.mongodb_storage = None
 
             logger.info("Cloud initialized.")
         except Exception as e:
