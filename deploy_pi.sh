@@ -127,8 +127,6 @@ else
     sleep 3
     if ps -p $STREAMLIT_PID > /dev/null; then
         print_status "Streamlit started (PID: $STREAMLIT_PID)"
-        echo "   Local: http://$(hostname -I | awk '{print $1}'):$DASH_PORT"
-        [ -n "$TAILSCALE_HOSTNAME" ] && echo "   Tailscale: http://$TAILSCALE_HOSTNAME:$DASH_PORT"
     else
         print_error "Failed to start Streamlit"
     fi

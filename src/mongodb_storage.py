@@ -1,16 +1,16 @@
 """
-MongoDB Atlas Integration Module
-Handles cloud storage of sensor data in MongoDB Atlas (free tier).
+MongoDB Atlas Storage Module
+Uses config.json for connection details.
 """
 
 import json
-from datetime import datetime
-from typing import Dict, Any, List, Optional
+from datetime import datetime, timedelta
+from typing import Dict, Any, List
 import logging
+from pathlib import Path
 
 try:
     from pymongo import MongoClient
-    from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
     MONGODB_AVAILABLE = True
 except ImportError:
     MONGODB_AVAILABLE = False
@@ -19,286 +19,133 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Load config
+CONFIG_PATH = Path(__file__).parent.parent / "config/config.json"
+
+if not CONFIG_PATH.exists():
+    raise FileNotFoundError(f"config.json not found at {CONFIG_PATH}")
+
+with CONFIG_PATH.open("r") as f:
+    CONFIG = json.load(f)
+
+MONGO_CONF = CONFIG.get("mongodb", {})
+CONNECTION_STRING = MONGO_CONF.get("connection_string")
+DB_NAME = MONGO_CONF.get("database", "piNetMon")
+COLLECTION_NAME = MONGO_CONF.get("collection", "sensor_data")
+
 
 class MongoDBStorage:
-    """Manages MongoDB Atlas cloud storage for sensor data."""
-    
-    def __init__(self, connection_string: Optional[str] = None, 
-                 database_name: str = "piNetMon",
-                 collection_name: str = "sensor_data"):
-        """
-        Initialize MongoDB Atlas connection.
-        
-        Args:
-            connection_string: MongoDB Atlas connection string
-            database_name: Name of the database
-            collection_name: Name of the collection
-        """
-        self.connection_string = connection_string
-        self.database_name = database_name
-        self.collection_name = collection_name
-        self.client: Optional[MongoClient] = None
-        self.db = None
+    """MongoDB cloud storage using config.json settings."""
+
+    def __init__(self):
+        self.client: MongoClient | None = None
         self.collection = None
         self.is_connected = False
-        
         if not MONGODB_AVAILABLE:
-            logger.error("pymongo not installed. Install with: pip install pymongo")
-            return
-        
-        if connection_string:
+            logger.error("pymongo not installed. Install with `pip install pymongo`")
+        elif CONNECTION_STRING:
             self.connect()
         else:
-            logger.warning("MongoDB connection string not provided")
-    
+            logger.warning("MongoDB connection string not found in config.json")
+
     def connect(self):
-        """Connect to MongoDB Atlas."""
         try:
-            self.client = MongoClient(
-                self.connection_string,
-                serverSelectionTimeoutMS=5000,
-                connectTimeoutMS=10000
-            )
-            
-            # Test connection
-            self.client.admin.command('ping')
-            
-            self.db = self.client[self.database_name]
-            self.collection = self.db[self.collection_name]
+            self.client = MongoClient(CONNECTION_STRING, serverSelectionTimeoutMS=5000)
+            self.client.admin.command("ping")
+            self.collection = self.client[DB_NAME][COLLECTION_NAME]
             self.is_connected = True
-            
-            # Create indexes for better query performance
+
+            # Indexes
             self.collection.create_index("timestamp")
             self.collection.create_index("device_id")
-            self.collection.create_index([("timestamp", -1)])
-            
-            logger.info(f"Connected to MongoDB Atlas: {self.database_name}.{self.collection_name}")
-            
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            logger.error(f"Failed to connect to MongoDB Atlas: {e}")
-            self.is_connected = False
+            logger.info(f"Connected to MongoDB: {DB_NAME}.{COLLECTION_NAME}")
         except Exception as e:
-            logger.error(f"Unexpected error connecting to MongoDB: {e}")
-            self.is_connected = False
-    
+            logger.error(f"Failed to connect to MongoDB: {e}")
+
     def disconnect(self):
-        """Disconnect from MongoDB Atlas."""
         if self.client:
             self.client.close()
             self.is_connected = False
-            logger.info("Disconnected from MongoDB Atlas")
-    
-    def store_sensor_data(self, data: Dict[str, Any]) -> bool:
-        """
-        Store sensor data in MongoDB Atlas.
-        
-        Args:
-            data: Sensor data dictionary
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
+            logger.info("Disconnected from MongoDB")
+
+    def _check_connection(self) -> bool:
         if not self.is_connected:
-            logger.warning("Not connected to MongoDB Atlas")
+            logger.warning("Not connected to MongoDB")
             return False
-        
+        return True
+
+    def store_sensor_data(self, data: Dict[str, Any]) -> bool:
+        if not self._check_connection():
+            return False
         try:
-            # Add metadata
             document = {
                 **data,
-                'stored_at': datetime.utcnow(),
-                'source': 'raspberry-pi',
-                'cloud_provider': 'mongodb_atlas'
+                "stored_at": datetime.utcnow(),
+                "source": "raspberry-pi",
+                "cloud_provider": "mongodb_atlas"
             }
-            
-            # Insert document
             result = self.collection.insert_one(document)
             logger.info(f"Data stored in MongoDB: {result.inserted_id}")
             return True
-            
         except Exception as e:
-            logger.error(f"Failed to store data in MongoDB: {e}")
+            logger.error(f"Failed to store data: {e}")
             return False
-    
+
     def get_recent_data(self, hours: int = 24, limit: int = 1000) -> List[Dict[str, Any]]:
-        """
-        Retrieve recent sensor data from MongoDB.
-        
-        Args:
-            hours: Number of hours to look back
-            limit: Maximum number of documents to return
-            
-        Returns:
-            list: List of sensor data documents
-        """
-        if not self.is_connected:
-            logger.warning("Not connected to MongoDB Atlas")
+        if not self._check_connection():
             return []
-        
-        try:
-            cutoff_time = datetime.utcnow()
-            cutoff_time = cutoff_time.replace(
-                hour=cutoff_time.hour - hours
-            )
-            
-            cursor = self.collection.find(
-                {'stored_at': {'$gte': cutoff_time}},
-                {'_id': 0}  # Exclude MongoDB _id field
-            ).sort('timestamp', -1).limit(limit)
-            
-            data = list(cursor)
-            logger.info(f"Retrieved {len(data)} documents from MongoDB")
-            return data
-            
-        except Exception as e:
-            logger.error(f"Failed to retrieve data from MongoDB: {e}")
-            return []
-    
+        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cursor = self.collection.find(
+            {"stored_at": {"$gte": cutoff}}, {"_id": 0}
+        ).sort("timestamp", -1).limit(limit)
+        return list(cursor)
+
     def get_anomalies(self, hours: int = 24, limit: int = 100) -> List[Dict[str, Any]]:
-        """
-        Retrieve anomalous data points from MongoDB.
-        
-        Args:
-            hours: Number of hours to look back
-            limit: Maximum number of documents to return
-            
-        Returns:
-            list: List of anomalous data documents
-        """
-        if not self.is_connected:
-            logger.warning("Not connected to MongoDB Atlas")
+        if not self._check_connection():
             return []
-        
-        try:
-            cutoff_time = datetime.utcnow()
-            cutoff_time = cutoff_time.replace(
-                hour=cutoff_time.hour - hours
-            )
-            
-            cursor = self.collection.find(
-                {
-                    'stored_at': {'$gte': cutoff_time},
-                    'local_analysis.is_anomaly': True
-                },
-                {'_id': 0}
-            ).sort('timestamp', -1).limit(limit)
-            
-            data = list(cursor)
-            logger.info(f"Retrieved {len(data)} anomalies from MongoDB")
-            return data
-            
-        except Exception as e:
-            logger.error(f"Failed to retrieve anomalies from MongoDB: {e}")
-            return []
-    
+        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cursor = self.collection.find(
+            {"stored_at": {"$gte": cutoff}, "local_analysis.is_anomaly": True},
+            {"_id": 0}
+        ).sort("timestamp", -1).limit(limit)
+        return list(cursor)
+
     def get_statistics(self) -> Dict[str, Any]:
-        """
-        Get collection statistics.
-        
-        Returns:
-            dict: Collection statistics
-        """
-        if not self.is_connected:
+        if not self._check_connection():
             return {}
-        
-        try:
-            total_count = self.collection.count_documents({})
-            anomaly_count = self.collection.count_documents(
-                {'local_analysis.is_anomaly': True}
-            )
-            
-            # Get oldest and newest documents
-            oldest = self.collection.find_one(
-                sort=[('timestamp', 1)]
-            )
-            newest = self.collection.find_one(
-                sort=[('timestamp', -1)]
-            )
-            
-            return {
-                'total_documents': total_count,
-                'anomaly_count': anomaly_count,
-                'oldest_record': oldest.get('timestamp') if oldest else None,
-                'newest_record': newest.get('timestamp') if newest else None,
-                'database': self.database_name,
-                'collection': self.collection_name,
-                'connected': self.is_connected
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to get statistics from MongoDB: {e}")
-            return {}
-    
-    def cleanup_old_data(self, days: int = 30):
-        """
-        Remove data older than specified days.
-        
-        Args:
-            days: Number of days to retain data
-        """
-        if not self.is_connected:
-            logger.warning("Not connected to MongoDB Atlas")
-            return
-        
-        try:
-            cutoff_time = datetime.utcnow()
-            cutoff_time = cutoff_time.replace(
-                day=cutoff_time.day - days
-            )
-            
-            result = self.collection.delete_many(
-                {'stored_at': {'$lt': cutoff_time}}
-            )
-            
-            logger.info(f"Deleted {result.deleted_count} old documents from MongoDB")
-            
-        except Exception as e:
-            logger.error(f"Failed to cleanup old data in MongoDB: {e}")
-
-
-def main():
-    """Test MongoDB Atlas integration."""
-    # This requires a MongoDB Atlas connection string
-    # Get one for free at: https://www.mongodb.com/cloud/atlas/register
-    
-    connection_string = "mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/"
-    
-    print("=== MongoDB Atlas Integration Test ===")
-    print("To use this, you need to:")
-    print("1. Sign up for free at https://www.mongodb.com/cloud/atlas/register")
-    print("2. Create a free cluster (M0)")
-    print("3. Get your connection string")
-    print("4. Update config/config.json with your connection string")
-    
-    # Test with dummy connection string (will fail, but shows usage)
-    storage = MongoDBStorage(connection_string)
-    
-    if storage.is_connected:
-        # Test data
-        test_data = {
-            'timestamp': datetime.now().isoformat(),
-            'device_id': 'rapsberry-pi-monitor',
-            'cpu': {
-                'temperature': 45.3,
-                'usage_percent': 30.0
-            },
-            'memory': {
-                'percent': 50.0
-            }
+        total = self.collection.count_documents({})
+        anomalies = self.collection.count_documents({"local_analysis.is_anomaly": True})
+        oldest = self.collection.find_one(sort=[("timestamp", 1)])
+        newest = self.collection.find_one(sort=[("timestamp", -1)])
+        return {
+            "total_documents": total,
+            "anomaly_count": anomalies,
+            "oldest_record": oldest.get("timestamp") if oldest else None,
+            "newest_record": newest.get("timestamp") if newest else None,
+            "database": DB_NAME,
+            "collection": COLLECTION_NAME,
+            "connected": self.is_connected
         }
-        
-        # Store data
-        storage.store_sensor_data(test_data)
-        
-        # Get statistics
-        stats = storage.get_statistics()
-        print(f"\nStatistics: {json.dumps(stats, indent=2)}")
-        
-        # Disconnect
-        storage.disconnect()
-    else:
-        print("\nNot connected. Configure your MongoDB Atlas connection string first.")
+
+    def cleanup_old_data(self, days: int = 30):
+        if not self._check_connection():
+            return
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        result = self.collection.delete_many({"stored_at": {"$lt": cutoff}})
+        logger.info(f"Deleted {result.deleted_count} old documents from MongoDB")
 
 
 if __name__ == "__main__":
-    main()
+    storage = MongoDBStorage()
+    if storage.is_connected:
+        test_data = {
+            "timestamp": datetime.now().isoformat(),
+            "device_id": "raspberry-pi-monitor",
+            "cpu": {"temperature": 45.3, "usage_percent": 30.0},
+            "memory": {"percent": 50.0}
+        }
+        storage.store_sensor_data(test_data)
+        print(storage.get_statistics())
+        storage.disconnect()
+    else:
+        print("MongoDB not connected. Check config.json.")

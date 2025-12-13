@@ -56,10 +56,7 @@ class PiNetworkMonitor:
         self.sensor_collector = SensorCollector(enabled)
 
         # --- Storage ---
-        qcfg = self.config.get("questdb", {})
-        self.local_storage = QuestDBStorage(
-            host=qcfg.get("host", "localhost"), port=qcfg.get("port", 9000)
-        )
+        self.local_storage = QuestDBStorage()
 
         # --- AI ---
         self.threshold_detector = SimpleThresholdDetector()
