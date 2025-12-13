@@ -3,8 +3,6 @@ Deploy model to Azure ML
 Run this script after creating the ML workspace
 """
 import os
-import shutil
-import tempfile
 from azure.ai.ml import MLClient
 from azure.ai.ml.entities import (
     ManagedOnlineEndpoint,
@@ -41,43 +39,33 @@ ml_client = MLClient(credential, subscription_id, resource_group, workspace_name
 
 print("Connected to Azure ML workspace")
 
-# Register the model with flattened structure
+# Register the model - no flattening, just use models directory directly
 print("Registering model...")
-# Create temp directory and copy model files directly (flatten structure)
-temp_dir = tempfile.mkdtemp()
-try:
-    # Copy ONNX models if they exist, otherwise PKL
-    onnx_model = os.path.join(models_dir, "model.onnx")
-    onnx_scaler = os.path.join(models_dir, "scaler.onnx")
-    pkl_model = os.path.join(models_dir, "model.pkl")
-    pkl_scaler = os.path.join(models_dir, "scaler.pkl")
-    
-    if os.path.exists(onnx_model) and os.path.exists(onnx_scaler):
-        print("Using ONNX models...")
-        shutil.copy(onnx_model, os.path.join(temp_dir, "model.onnx"))
-        shutil.copy(onnx_scaler, os.path.join(temp_dir, "scaler.onnx"))
-        model_type = "onnx"
-    elif os.path.exists(pkl_model) and os.path.exists(pkl_scaler):
-        print("Using PKL models...")
-        shutil.copy(pkl_model, os.path.join(temp_dir, "model.pkl"))
-        shutil.copy(pkl_scaler, os.path.join(temp_dir, "scaler.pkl"))
-        model_type = "pkl"
-    else:
-        raise FileNotFoundError("No trained models found. Run 'python3 src/ai_models.py' first.")
-    
-    print(f"Created flattened model directory at: {temp_dir}")
-    
-    model = Model(
-        path=temp_dir,
-        type="custom_model",
-        name="pi-anomaly-detector",
-        description=f"Anomaly detection model ({model_type}) for Raspberry Pi monitoring"
-    )
-    registered_model = ml_client.models.create_or_update(model)
-    print(f"Model registered: {registered_model.name} version {registered_model.version}")
-finally:
-    # Cleanup temp directory
-    shutil.rmtree(temp_dir, ignore_errors=True)
+
+# Check which models exist
+onnx_model = os.path.join(models_dir, "model.onnx")
+onnx_scaler = os.path.join(models_dir, "scaler.onnx")
+pkl_model = os.path.join(models_dir, "model.pkl")
+pkl_scaler = os.path.join(models_dir, "scaler.pkl")
+
+if os.path.exists(onnx_model) and os.path.exists(onnx_scaler):
+    model_type = "onnx"
+    print("Using ONNX models...")
+elif os.path.exists(pkl_model) and os.path.exists(pkl_scaler):
+    model_type = "pkl"
+    print("Using PKL models...")
+else:
+    raise FileNotFoundError("No trained models found. Run 'python3 src/ai_models.py' first.")
+
+# Register model using the models directory directly
+model = Model(
+    path=models_dir,
+    type="custom_model",
+    name="pi-anomaly-detector",
+    description=f"Anomaly detection model ({model_type}) for Raspberry Pi monitoring"
+)
+registered_model = ml_client.models.create_or_update(model)
+print(f"Model registered: {registered_model.name} version {registered_model.version}")
 
 # Create endpoint
 print("Creating endpoint...")
@@ -106,7 +94,7 @@ deployment = ManagedOnlineDeployment(
     ),
     environment=Environment(
         conda_file=os.path.join(script_dir, "conda_env.yml"),
-        image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04:latest"  # Changed to ubuntu22.04
+        image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04:latest"
     ),
     instance_type="Standard_DS2_v2",
     instance_count=1

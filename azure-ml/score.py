@@ -17,24 +17,25 @@ def init():
         model_dir = os.getenv('AZUREML_MODEL_DIR', '.')
         print(f"AZUREML_MODEL_DIR: {model_dir}")
         
-        # List all files in model directory
-        print(f"Contents of {model_dir}:")
+        # List all files recursively to find models
+        print(f"Searching for models in {model_dir}:")
+        model_files = []
         for root, dirs, files in os.walk(model_dir):
-            level = root.replace(model_dir, '').count(os.sep)
-            indent = ' ' * 2 * level
-            print(f"{indent}{os.path.basename(root)}/")
-            sub_indent = ' ' * 2 * (level + 1)
             for file in files:
-                print(f"{sub_indent}{file}")
+                if file.endswith(('.onnx', '.pkl')):
+                    full_path = os.path.join(root, file)
+                    model_files.append(full_path)
+                    print(f"  Found: {full_path}")
         
-        # Check for ONNX models first (preferred)
-        onnx_model_path = os.path.join(model_dir, 'model.onnx')
-        onnx_scaler_path = os.path.join(model_dir, 'scaler.onnx')
+        # Find ONNX models
+        onnx_model_path = next((f for f in model_files if f.endswith('model.onnx')), None)
+        onnx_scaler_path = next((f for f in model_files if f.endswith('scaler.onnx')), None)
         
-        pkl_model_path = os.path.join(model_dir, 'model.pkl')
-        pkl_scaler_path = os.path.join(model_dir, 'scaler.pkl')
+        # Find PKL models
+        pkl_model_path = next((f for f in model_files if f.endswith('model.pkl')), None)
+        pkl_scaler_path = next((f for f in model_files if f.endswith('scaler.pkl')), None)
         
-        if os.path.exists(onnx_model_path) and os.path.exists(onnx_scaler_path):
+        if onnx_model_path and onnx_scaler_path:
             # Use ONNX
             print("Loading ONNX models...")
             import onnxruntime as ort
@@ -43,10 +44,10 @@ def init():
             scaler = ort.InferenceSession(onnx_scaler_path)
             use_onnx = True
             
-            print(f"✓ ONNX Model loaded")
-            print(f"✓ ONNX Scaler loaded")
+            print(f"✓ ONNX Model loaded from {onnx_model_path}")
+            print(f"✓ ONNX Scaler loaded from {onnx_scaler_path}")
             
-        elif os.path.exists(pkl_model_path) and os.path.exists(pkl_scaler_path):
+        elif pkl_model_path and pkl_scaler_path:
             # Use PKL
             print("Loading PKL models...")
             
@@ -60,9 +61,7 @@ def init():
             print(f"✓ PKL Scaler loaded: {type(scaler)}")
         else:
             raise FileNotFoundError(
-                f"No models found. Expected either:\n"
-                f"  - ONNX: {onnx_model_path} + {onnx_scaler_path}\n"
-                f"  - PKL: {pkl_model_path} + {pkl_scaler_path}"
+                f"No models found in {model_dir}. Found files: {model_files}"
             )
         
         print("✅ Initialization complete!")
