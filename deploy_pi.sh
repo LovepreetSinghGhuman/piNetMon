@@ -43,6 +43,10 @@ LOG_DIR=$(get_config "config['logging']['log_dir']" "./logs")
 LOG_DASHBOARD=$(get_config "config['logging']['files']['dashboard']" "logs/dashboard.log")
 LOG_MAIN=$(get_config "config['logging']['files']['main']" "logs/monitor.log")
 
+# Load MongoDB configuration
+MONGO_DB=$(get_config "config['mongodb']['database']" "piNetMon")
+MONGO_COLLECTION=$(get_config "config['mongodb']['collection']" "sensor_data")
+
 # Create logs directory if it doesn't exist
 mkdir -p "$LOG_DIR"
 
@@ -50,6 +54,7 @@ mkdir -p "$LOG_DIR"
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Function to print status
@@ -63,6 +68,10 @@ print_warning() {
 
 print_error() {
     echo -e "${RED}✗${NC} $1"
+}
+
+print_info() {
+    echo -e "${BLUE}ℹ${NC} $1"
 }
 
 # Get Tailscale hostname if available
@@ -115,9 +124,34 @@ echo "   Testing QuestDB connection..."
 sleep 3
 python3 -c "import requests; r = requests.get('http://localhost:$QDB_PORT_HTTP/exec', params={'query': 'SELECT 1'}, timeout=15); exit(0 if r.status_code == 200 else 1)" 2>/dev/null && print_status "QuestDB is accessible" || print_warning "QuestDB may not be ready yet (will retry on first use)"
 
-# 3. Start Streamlit Dashboard (in background)
+# 3. Test MongoDB Atlas connection
 echo ""
-echo "3. Starting Streamlit Dashboard..."
+echo "3. Testing MongoDB Atlas (Backup Storage)..."
+python3 -c "
+import sys
+sys.path.insert(0, 'src')
+try:
+    from mongodb_storage import MongoDBStorage
+    mongo = MongoDBStorage()
+    if mongo.is_connected:
+        print('✅ MongoDB backup storage connected')
+        stats = mongo.get_statistics()
+        print(f'   Database: {stats.get(\"database\")}')
+        print(f'   Collection: {stats.get(\"collection\")}')
+        print(f'   Total documents: {stats.get(\"total_documents\", 0)}')
+        mongo.disconnect()
+        exit(0)
+    else:
+        print('⚠️ MongoDB backup storage not connected')
+        exit(1)
+except Exception as e:
+    print(f'❌ MongoDB backup storage error: {e}')
+    exit(1)
+" && print_status "MongoDB backup ready" || print_warning "MongoDB backup unavailable (app will continue without backup)"
+
+# 4. Start Streamlit Dashboard (in background)
+echo ""
+echo "4. Starting Streamlit Dashboard..."
 if pgrep -f "streamlit run.*dashboard.py" > /dev/null; then
     print_status "Streamlit is already running"
 else
@@ -133,9 +167,9 @@ else
     deactivate
 fi
 
-# 4. Start Main Monitoring Application (in background)
+# 5. Start Main Monitoring Application (in background)
 echo ""
-echo "4. Starting Main Monitoring Application..."
+echo "5. Starting Main Monitoring Application..."
 if pgrep -f "python.*src/main.py" > /dev/null; then
     print_status "Main application is already running"
 else
@@ -157,10 +191,14 @@ echo ""
 echo "=================================="
 echo "Deployment Summary"
 echo "=================================="
-docker ps --filter "name=$QDB_CONTAINER" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+echo ""
+echo "Storage Services:"
+echo "  Primary:  QuestDB (Local Time-Series DB)"
+docker ps --filter "name=$QDB_CONTAINER" --format "    - {{.Names}}: {{.Status}}"
+echo "  Backup:   MongoDB Atlas ($MONGO_DB.$MONGO_COLLECTION)"
 echo ""
 echo "Running Processes:"
-pgrep -af "streamlit|src/main.py" || echo "No monitoring processes found"
+pgrep -af "streamlit|src/main.py" || echo "  No monitoring processes found"
 echo ""
 echo "Logs:"
 echo "  - Dashboard: $LOG_DASHBOARD"
@@ -178,6 +216,8 @@ if [ -n "$TAILSCALE_HOSTNAME" ]; then
 fi
 echo ""
 print_status "Deployment complete!"
+echo ""
+print_info "MongoDB backup storage will be checked when main app starts"
 
 # Optional: Sync updated files to remote Pi
 # rsync -avz --progress \
