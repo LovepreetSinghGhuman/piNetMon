@@ -1,7 +1,7 @@
 # Raspberry Pi Network Monitoring Platform – Documentatie
 
 **Auteur:** Lovepreet Singh  
-**Versie:** 2.1  
+**Versie:** 3.0  
 **Datum:** 12 december 2025  
 **Project:** HOWEST TIC – CFAI Eindopdracht
 

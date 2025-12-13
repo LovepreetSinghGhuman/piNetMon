@@ -105,7 +105,7 @@ def load_statistics():
 
 
 # ============================================================================
-# DEVICE TWIN MANAGEMENT - Using REST API (no azure-iot-hub package needed)
+# DEVICE TWIN MANAGEMENT - Using REST API
 # ============================================================================
 
 def generate_sas_token(uri, key, policy_name, expiry=3600):

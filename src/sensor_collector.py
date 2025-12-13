@@ -1,48 +1,62 @@
-"""
-Sensor Data Collection Module
-Collects data from Raspberry Pi sensors including CPU, memory, temperature, and network stats.
-"""
-
 import psutil
-import time
 import json
+import time
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import logging
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 
 class SensorCollector:
-    """Collects various system metrics from the Raspberry Pi."""
-    
-    def __init__(self):
-        """Initialize the sensor collector."""
-        self.start_time = datetime.now()
-        logger.info("SensorCollector initialized")
-    
-    def get_cpu_temperature(self) -> float:
+    def __init__(self, enabled_sensors: Optional[Dict[str, bool]] = None):
         """
-        Get CPU temperature in Celsius.
+        Initialize the sensor collector.
+        
+        Args:
+            enabled_sensors: Dictionary of sensor names and their enabled status.
+                            Example: {'temperature': True, 'cpu': True, 'memory': False}
+                            If None, all sensors are enabled by default.
+        """
+        self.start_time = datetime.now()
+        self.enabled_sensors = enabled_sensors or {
+            'temperature': True,
+            'cpu': True,
+            'memory': True,
+            'disk': True,
+            'network': True
+        }
+        logger.info(f"SensorCollector initialized with enabled sensors: {self.enabled_sensors}")
+    
+    def update_enabled_sensors(self, enabled_sensors: Dict[str, bool]):
+        """
+        Update which sensors are enabled.
+        
+        Args:
+            enabled_sensors: Dictionary of sensor names and their enabled status
+        """
+        self.enabled_sensors.update(enabled_sensors)
+        logger.info(f"Updated enabled sensors: {self.enabled_sensors}")
+    
+    def get_cpu_temperature(self) -> Optional[float]:
+        """
+        Get CPU temperature from thermal zone.
         
         Returns:
-            float: CPU temperature in Celsius, or None if unavailable
+            float: Temperature in Celsius, or None if unavailable
         """
         try:
-            # Try reading from thermal zone (Raspberry Pi)
             with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
                 temp = float(f.read().strip()) / 1000.0
                 return round(temp, 2)
+        except FileNotFoundError:
+            logger.warning("Temperature sensor not found")
+            return None
         except Exception as e:
-            logger.warning(f"Could not read CPU temperature: {e}")
+            logger.error(f"Error reading temperature: {e}")
             return None
     
-    def get_cpu_usage(self) -> Dict[str, float]:
+    def get_cpu_usage(self) -> Dict[str, Any]:
         """
         Get CPU usage statistics.
         
@@ -110,26 +124,45 @@ class SensorCollector:
     
     def collect_all_data(self) -> Dict[str, Any]:
         """
-        Collect all sensor data.
+        Collect enabled sensor data only.
         
         Returns:
-            dict: Complete sensor data reading
+            dict: Sensor data for enabled sensors only
         """
         timestamp = datetime.now().isoformat()
         
         data = {
             'timestamp': timestamp,
-            'device_id': 'rapsberry-pi-monitor',
-            'cpu': {
-                'temperature': self.get_cpu_temperature(),
-                **self.get_cpu_usage()
-            },
-            'memory': self.get_memory_usage(),
-            'disk': self.get_disk_usage(),
-            'network': self.get_network_stats()
+            'device_id': 'rapsberry-pi-monitor'
         }
         
-        logger.info(f"Collected sensor data at {timestamp}")
+        # Collect CPU data (temperature + usage together)
+        if self.enabled_sensors.get('temperature', True) or self.enabled_sensors.get('cpu', True):
+            cpu_data = {}
+            
+            if self.enabled_sensors.get('temperature', True):
+                cpu_data['temperature'] = self.get_cpu_temperature()
+            
+            if self.enabled_sensors.get('cpu', True):
+                cpu_data.update(self.get_cpu_usage())
+            
+            if cpu_data:  # Only add cpu key if we collected something
+                data['cpu'] = cpu_data
+        
+        # Collect memory data
+        if self.enabled_sensors.get('memory', True):
+            data['memory'] = self.get_memory_usage()
+        
+        # Collect disk data
+        if self.enabled_sensors.get('disk', True):
+            data['disk'] = self.get_disk_usage()
+        
+        # Collect network data
+        if self.enabled_sensors.get('network', True):
+            data['network'] = self.get_network_stats()
+        
+        enabled_list = [k for k, v in self.enabled_sensors.items() if v]
+        logger.info(f"Collected data for enabled sensors: {enabled_list} at {timestamp}")
         return data
     
     def collect_data_json(self) -> str:
@@ -159,9 +192,15 @@ def main():
         while True:
             data = collector.collect_all_data()
             print(f"\n[{data['timestamp']}]")
-            print(f"CPU: {data['cpu']['usage_percent']}% | Temp: {data['cpu']['temperature']}°C")
-            print(f"Memory: {data['memory']['percent']}% ({data['memory']['used_mb']}/{data['memory']['total_mb']} MB)")
-            print(f"Disk: {data['disk']['percent']}% ({data['disk']['used_gb']}/{data['disk']['total_gb']} GB)")
+            if 'cpu' in data:
+                temp_str = f"Temp: {data['cpu'].get('temperature', 'N/A')}°C" if 'temperature' in data['cpu'] else ''
+                usage_str = f"CPU: {data['cpu'].get('usage_percent', 'N/A')}%" if 'usage_percent' in data['cpu'] else ''
+                if temp_str or usage_str:
+                    print(f"{usage_str} | {temp_str}".strip(' |'))
+            if 'memory' in data:
+                print(f"Memory: {data['memory']['percent']}% ({data['memory']['used_mb']}/{data['memory']['total_mb']} MB)")
+            if 'disk' in data:
+                print(f"Disk: {data['disk']['percent']}% ({data['disk']['used_gb']}/{data['disk']['total_gb']} GB)")
             time.sleep(5)
     except KeyboardInterrupt:
         print("\n\nMonitoring stopped.")
