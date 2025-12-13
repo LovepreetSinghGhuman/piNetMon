@@ -49,7 +49,7 @@ def load_real_data(min_samples=100):
         from questdb_storage import QuestDBStorage
         db = QuestDBStorage()
         query = """
-            SELECT cpu_temperature, cpu_usage, memory_percent, 
+            SELECT cpu_temperature, cpu_usage_percent, memory_percent, 
                    disk_percent, network_sent_mb, network_recv_mb
             FROM sensor_data
             ORDER BY timestamp DESC LIMIT 100
@@ -185,7 +185,7 @@ class SimpleThresholdDetector:
 class AnomalyDetector:
     """Local anomaly detection: ONNX preferred, PKL fallback."""
 
-    FEATURES = ["cpu_temperature", "cpu_usage", "memory_percent", "disk_percent", "network_sent_mb", "network_recv_mb"]
+    FEATURES = ["cpu_temperature", "cpu_usage_percent", "memory_percent", "disk_percent", "network_sent_mb", "network_recv_mb"]
 
     def __init__(self, model_path=MODEL_DIR, prefer_onnx=True):
         self.model_path = model_path

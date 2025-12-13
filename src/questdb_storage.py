@@ -34,10 +34,11 @@ class QuestDBStorage:
         CREATE TABLE IF NOT EXISTS sensor_data (
             device_id SYMBOL,
             cpu_temperature DOUBLE,
-            cpu_usage DOUBLE,
-            cpu_frequency DOUBLE,
+            cpu_usage_percent DOUBLE,
+            cpu_frequency_mhz DOUBLE,
+            cpu_core_count DOUBLE,
             memory_total_mb DOUBLE,
-            memory_used_mb DOUBLE,
+            memory_available_mb DOUBLE,
             memory_percent DOUBLE,
             disk_total_gb DOUBLE,
             disk_used_gb DOUBLE,
@@ -77,12 +78,43 @@ class QuestDBStorage:
             device_id = data.get("device_id", "unknown")
             fields = {}
 
-            for key in ["cpu", "memory", "disk", "network"]:
-                metrics = data.get(key, {})
-                for k, v in metrics.items():
-                    if v is not None:
-                        fields[f"{key}_{k.replace('bytes_', '')}"] = v
+            # Map CPU fields
+            cpu = data.get("cpu", {})
+            if cpu.get("temperature") is not None:
+                fields["cpu_temperature"] = cpu["temperature"]
+            if cpu.get("usage_percent") is not None:
+                fields["cpu_usage_percent"] = cpu["usage_percent"]
+            if cpu.get("frequency_mhz") is not None:
+                fields["cpu_frequency_mhz"] = cpu["frequency_mhz"]
+            if cpu.get("core_count") is not None:
+                fields["cpu_core_count"] = cpu["core_count"]
 
+            # Map Memory fields
+            memory = data.get("memory", {})
+            if memory.get("total_mb") is not None:
+                fields["memory_total_mb"] = memory["total_mb"]
+            if memory.get("available_mb") is not None:
+                fields["memory_available_mb"] = memory["available_mb"]
+            if memory.get("percent") is not None:
+                fields["memory_percent"] = memory["percent"]
+
+            # Map Disk fields
+            disk = data.get("disk", {})
+            if disk.get("total_gb") is not None:
+                fields["disk_total_gb"] = disk["total_gb"]
+            if disk.get("used_gb") is not None:
+                fields["disk_used_gb"] = disk["used_gb"]
+            if disk.get("percent") is not None:
+                fields["disk_percent"] = disk["percent"]
+
+            # Map Network fields
+            network = data.get("network", {})
+            if network.get("bytes_sent_mb") is not None:
+                fields["network_sent_mb"] = network["bytes_sent_mb"]
+            if network.get("bytes_recv_mb") is not None:
+                fields["network_recv_mb"] = network["bytes_recv_mb"]
+
+            # Add anomaly fields
             if anomaly_score is not None:
                 fields["anomaly_score"] = anomaly_score
             fields["is_anomaly"] = str(is_anomaly).lower()
@@ -118,7 +150,7 @@ class QuestDBStorage:
                 min(timestamp) as oldest_record,
                 max(timestamp) as newest_record,
                 avg(cpu_temperature) as avg_cpu_temp,
-                avg(cpu_usage) as avg_cpu_usage,
+                avg(cpu_usage_percent) as avg_cpu_usage,
                 avg(memory_percent) as avg_memory_usage
             FROM sensor_data
         """
