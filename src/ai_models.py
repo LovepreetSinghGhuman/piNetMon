@@ -43,7 +43,7 @@ CLOUD_CONF = CONFIG.get("ai_models", {}).get("cloud", {})
 
 # --------------------------- TRAINING HELPERS ---------------------------
 
-def load_real_data(min_samples=1000):
+def load_real_data(min_samples=100):
     """Load last samples from QuestDB or fallback."""
     try:
         from questdb_storage import QuestDBStorage
@@ -52,7 +52,7 @@ def load_real_data(min_samples=1000):
             SELECT cpu_temperature, cpu_usage, memory_percent, 
                    disk_percent, network_sent_mb, network_recv_mb
             FROM sensor_data
-            ORDER BY timestamp DESC LIMIT 1000
+            ORDER BY timestamp DESC LIMIT 100
         """
         result = db.query(query)
         data = result.get("dataset", []) if result else []
@@ -65,7 +65,7 @@ def load_real_data(min_samples=1000):
         return None
 
 
-def generate_synthetic_data(n=1000):
+def generate_synthetic_data(n=100):
     """Fallback synthetic dataset with 10% anomalies."""
     np.random.seed(42)
     X = np.column_stack([
@@ -98,14 +98,17 @@ def train_and_save_models(model_dir="./models"):
         logger.info("Exporting ONNX models...")
         n_features = X.shape[1]
         init_type = [('float_input', FloatTensorType([None, n_features]))]
+        
+        # Specify target opset to avoid version mismatch
+        target_opset = {'': 15, 'ai.onnx.ml': 3}
 
         # Scaler ONNX
-        scaler_onnx = convert_sklearn(scaler, initial_types=init_type)
+        scaler_onnx = convert_sklearn(scaler, initial_types=init_type, target_opset=target_opset)
         with open(os.path.join(model_dir, "scaler.onnx"), "wb") as f:
             f.write(scaler_onnx.SerializeToString())
 
         # Model ONNX
-        model_onnx = convert_sklearn(model, initial_types=init_type)
+        model_onnx = convert_sklearn(model, initial_types=init_type, target_opset=target_opset)
         with open(os.path.join(model_dir, "model.onnx"), "wb") as f:
             f.write(model_onnx.SerializeToString())
 
