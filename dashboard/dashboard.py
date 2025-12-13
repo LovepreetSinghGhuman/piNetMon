@@ -201,9 +201,11 @@ def compare_sensor_configs(desired, reported):
         if desired_config.get('enabled') != reported_config.get('enabled'):
             return False
         
-        # Check interval if specified in desired
+        # Check interval if specified in desired (only compare if present in desired)
         if 'interval_seconds' in desired_config:
-            if desired_config.get('interval_seconds') != reported_config.get('interval_seconds'):
+            desired_interval = desired_config.get('interval_seconds')
+            reported_interval = reported_config.get('interval_seconds')
+            if desired_interval != reported_interval:
                 return False
     
     return True
@@ -352,7 +354,6 @@ def main():
                 success, message = update_device_twin_rest(device_id, conn_str, desired_properties)
                 if success:
                     st.success(message)
-                    st.balloons()
                 else:
                     st.error(f"Failed to update: {message}")
         elif twin_available:
