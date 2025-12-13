@@ -2,11 +2,11 @@ name: anomaly-detection-env
 channels:
   - conda-forge
 dependencies:
-  - python=3.11
-  - pip
+  - python=3.9
+  - pip=23.3.1
   - pip:
-    - azureml-defaults>=1.0.0
-    - inference-schema
-    - scikit-learn==1.8.0
-    - numpy==2.3.5
-    - joblib
+      - azureml-defaults
+      - inference-schema
+      - scikit-learn==1.3.2
+      - numpy==1.24.3
+      - onnxruntime==1.16.3

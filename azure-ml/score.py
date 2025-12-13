@@ -10,23 +10,14 @@ import os
 
 def init():
     """Initialize the model."""
-    global model, scaler
+    global model, scaler, use_onnx
     
     try:
-        # Get model directory from Azure ML environment variable
+        # Get model directory
         model_dir = os.getenv('AZUREML_MODEL_DIR', '.')
         print(f"AZUREML_MODEL_DIR: {model_dir}")
         
-        # Azure ML puts model files directly in AZUREML_MODEL_DIR
-        # Structure: /var/azureml-app/azureml-models/<model-name>/<version>/
-        # Our files should be directly there (flattened during upload)
-        model_path = os.path.join(model_dir, 'model.pkl')
-        scaler_path = os.path.join(model_dir, 'scaler.pkl')
-        
-        print(f"Looking for model at: {model_path}")
-        print(f"Looking for scaler at: {scaler_path}")
-        
-        # Debug: List directory contents
+        # List all files in model directory
         print(f"Contents of {model_dir}:")
         for root, dirs, files in os.walk(model_dir):
             level = root.replace(model_dir, '').count(os.sep)
@@ -36,26 +27,43 @@ def init():
             for file in files:
                 print(f"{sub_indent}{file}")
         
-        # Check if files exist
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Model file not found at: {model_path}")
-        if not os.path.exists(scaler_path):
-            raise FileNotFoundError(f"Scaler file not found at: {scaler_path}")
+        # Check for ONNX models first (preferred)
+        onnx_model_path = os.path.join(model_dir, 'model.onnx')
+        onnx_scaler_path = os.path.join(model_dir, 'scaler.onnx')
         
-        print(f"✓ Found model.pkl ({os.path.getsize(model_path)} bytes)")
-        print(f"✓ Found scaler.pkl ({os.path.getsize(scaler_path)} bytes)")
+        pkl_model_path = os.path.join(model_dir, 'model.pkl')
+        pkl_scaler_path = os.path.join(model_dir, 'scaler.pkl')
         
-        # Load model
-        print("Loading model...")
-        with open(model_path, 'rb') as f:
-            model = pickle.load(f)
-        print(f"✓ Model loaded: {type(model)}")
-        
-        # Load scaler
-        print("Loading scaler...")
-        with open(scaler_path, 'rb') as f:
-            scaler = pickle.load(f)
-        print(f"✓ Scaler loaded: {type(scaler)}")
+        if os.path.exists(onnx_model_path) and os.path.exists(onnx_scaler_path):
+            # Use ONNX
+            print("Loading ONNX models...")
+            import onnxruntime as ort
+            
+            model = ort.InferenceSession(onnx_model_path)
+            scaler = ort.InferenceSession(onnx_scaler_path)
+            use_onnx = True
+            
+            print(f"✓ ONNX Model loaded")
+            print(f"✓ ONNX Scaler loaded")
+            
+        elif os.path.exists(pkl_model_path) and os.path.exists(pkl_scaler_path):
+            # Use PKL
+            print("Loading PKL models...")
+            
+            with open(pkl_model_path, 'rb') as f:
+                model = pickle.load(f)
+            with open(pkl_scaler_path, 'rb') as f:
+                scaler = pickle.load(f)
+            use_onnx = False
+            
+            print(f"✓ PKL Model loaded: {type(model)}")
+            print(f"✓ PKL Scaler loaded: {type(scaler)}")
+        else:
+            raise FileNotFoundError(
+                f"No models found. Expected either:\n"
+                f"  - ONNX: {onnx_model_path} + {onnx_scaler_path}\n"
+                f"  - PKL: {pkl_model_path} + {pkl_scaler_path}"
+            )
         
         print("✅ Initialization complete!")
         
@@ -90,34 +98,48 @@ def run(raw_data):
         # Extract features
         features = [
             input_data.get('cpu_temperature', 0) or 0,
-            input_data.get('cpu_usage', 0),
-            input_data.get('memory_percent', 0),
-            input_data.get('disk_percent', 0),
-            input_data.get('network_sent', 0),
-            input_data.get('network_recv', 0)
+            input_data.get('cpu_usage', 0) or 0,
+            input_data.get('memory_percent', 0) or 0,
+            input_data.get('disk_percent', 0) or 0,
+            input_data.get('network_sent', 0) or 0,
+            input_data.get('network_recv', 0) or 0
         ]
         
-        # Reshape and scale
-        X = np.array(features).reshape(1, -1)
-        X_scaled = scaler.transform(X)
+        # Reshape
+        X = np.array(features, dtype=np.float32).reshape(1, -1)
         
-        # Predict
-        prediction = model.predict(X_scaled)[0]
-        anomaly_score = -model.score_samples(X_scaled)[0]
+        if use_onnx:
+            # ONNX inference
+            scaler_input_name = scaler.get_inputs()[0].name
+            X_scaled = scaler.run(None, {scaler_input_name: X})[0]
+            
+            model_input_name = model.get_inputs()[0].name
+            outputs = model.run(None, {model_input_name: X_scaled})
+            
+            prediction = outputs[0][0]
+            anomaly_score = -outputs[1][0][0]
+        else:
+            # PKL inference
+            X_scaled = scaler.transform(X)
+            prediction = model.predict(X_scaled)[0]
+            anomaly_score = -model.score_samples(X_scaled)[0]
         
         # Prepare response
         result = {
             'prediction': 'anomaly' if prediction == -1 else 'normal',
             'anomaly_score': float(anomaly_score),
             'confidence': float(min(1.0, max(0.0, 1.0 - anomaly_score / 5.0))),
-            'is_anomaly': bool(prediction == -1)
+            'is_anomaly': bool(prediction == -1),
+            'model_type': 'onnx' if use_onnx else 'pkl'
         }
         
         return json.dumps(result)
         
     except Exception as e:
+        import traceback
         error_msg = {
             'error': str(e),
+            'traceback': traceback.format_exc(),
             'prediction': 'error'
         }
         return json.dumps(error_msg)

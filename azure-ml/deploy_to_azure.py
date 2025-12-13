@@ -106,7 +106,7 @@ deployment = ManagedOnlineDeployment(
     ),
     environment=Environment(
         conda_file=os.path.join(script_dir, "conda_env.yml"),
-        image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04:latest"
+        image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04:latest"  # Changed to ubuntu22.04
     ),
     instance_type="Standard_DS2_v2",
     instance_count=1
