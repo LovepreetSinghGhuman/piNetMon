@@ -303,19 +303,71 @@ def main():
                                           value=sensors.get('cpu', {}).get('interval_seconds', 30))
             memory_interval = st.number_input("Memory Interval", min_value=10, max_value=300, 
                                              value=sensors.get('memory', {}).get('interval_seconds', 30))
+            disk_interval = st.number_input("Disk Interval", min_value=30, max_value=600, 
+                                           value=sensors.get('disk', {}).get('interval_seconds', 120))
+            network_interval = st.number_input("Network Interval", min_value=10, max_value=300, 
+                                              value=sensors.get('network', {}).get('interval_seconds', 60))
+            temp_interval = st.number_input("Temperature Interval", min_value=30, max_value=300, 
+                                           value=sensors.get('temperature', {}).get('interval_seconds', 60))
             
             st.write("**AI Configuration**")
             ai_models = current_twin.get('ai_models', {})
             local_ai = ai_models.get('local', {})
             anomaly_det = local_ai.get('anomaly_detection', {})
             
-            local_ai_enabled = st.checkbox("Local AI Anomaly Detection", 
-                                          value=anomaly_det.get('enabled', True))
-            cloud_ai_enabled = st.checkbox("Cloud AI", 
-                                          value=ai_models.get('cloud', {}).get('enabled', False))
+            # Get thresholds first (needed for Apply AI Mode button)
+            thresholds = anomaly_det.get('thresholds', {})
+            
+            # Determine current AI mode
+            current_local = anomaly_det.get('enabled', True)
+            current_cloud = ai_models.get('cloud', {}).get('enabled', False)
+            
+            if current_cloud:
+                current_mode = "Cloud AI"
+            else:
+                current_mode = "Local AI"  # Default to Local AI
+            
+            ai_mode = st.radio(
+                "Select AI Mode (Only one can be active)",
+                ["Local AI", "Cloud AI"],
+                index=["Local AI", "Cloud AI"].index(current_mode),
+                horizontal=True
+            )
+            
+            local_ai_enabled = (ai_mode == "Local AI")
+            cloud_ai_enabled = (ai_mode == "Cloud AI")
+            
+            # Quick AI mode switch button
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                if st.button("🚀 Apply AI Mode", type="primary"):
+                    ai_only_update = {
+                        "ai_models": {
+                            "local": {
+                                "anomaly_detection": {
+                                    "enabled": local_ai_enabled,
+                                    "thresholds": {
+                                        "cpu_temperature": float(thresholds.get('cpu_temperature', 90)),
+                                        "cpu_usage": float(thresholds.get('cpu_usage', 90)),
+                                        "memory_percent": float(thresholds.get('memory_percent', 85)),
+                                        "disk_percent": float(thresholds.get('disk_percent', 90))
+                                    }
+                                }
+                            },
+                            "cloud": {"enabled": cloud_ai_enabled}
+                        }
+                    }
+                    success, message = update_device_twin_rest(device_id, conn_str, ai_only_update)
+                    if success:
+                        st.success(f"✅ Switched to {ai_mode}! Changes apply immediately.")
+                        st.rerun()
+                    else:
+                        st.error(f"Failed: {message}")
+            with col2:
+                if ai_mode != current_mode:
+                    st.info(f"💡 Click 'Apply AI Mode' to switch from {current_mode} to {ai_mode}")
             
             st.write("**Anomaly Thresholds**")
-            thresholds = anomaly_det.get('thresholds', {})
             cpu_temp_thresh = st.slider("CPU Temperature (°C)", 60, 100, 
                                         value=int(thresholds.get('cpu_temperature', 80)))
             cpu_usage_thresh = st.slider("CPU Usage (%)", 50, 100, 
@@ -325,15 +377,17 @@ def main():
             disk_thresh = st.slider("Disk Usage (%)", 50, 100, 
                                    value=int(thresholds.get('disk_percent', 90)))
             
-            # Update button
-            if st.button("📤 Update Device Twin", type="primary"):
+            # Full configuration update button
+            st.markdown("---")
+            st.write("**Complete Configuration Update**")
+            if st.button("📤 Update All Settings", type="secondary"):
                 desired_properties = {
                     "sensors": {
                         "cpu": {"enabled": cpu_enabled, "interval_seconds": cpu_interval},
                         "memory": {"enabled": memory_enabled, "interval_seconds": memory_interval},
-                        "disk": {"enabled": disk_enabled},
-                        "network": {"enabled": network_enabled},
-                        "temperature": {"enabled": temp_enabled}
+                        "disk": {"enabled": disk_enabled, "interval_seconds": disk_interval},
+                        "network": {"enabled": network_enabled, "interval_seconds": network_interval},
+                        "temperature": {"enabled": temp_enabled, "interval_seconds": temp_interval}
                     },
                     "ai_models": {
                         "local": {
@@ -415,9 +469,66 @@ def main():
     total = max(stats.get('total_records', 1), 1)
     anomaly_count = stats.get('anomaly_count', 0)
     anomaly_rate = (anomaly_count / total) * 100
-    col2.metric("Anomalies", anomaly_count, f"{anomaly_rate:.1f}%", delta_color="inverse")
+    col2.metric("Anomalies (Local)", anomaly_count, f"{anomaly_rate:.1f}%", delta_color="inverse")
     col3.metric("Avg CPU Temp", f"{stats.get('avg_cpu_temp', 0):.1f}°C")
     col4.metric("Avg Memory", f"{stats.get('avg_memory_usage', 0):.1f}%")
+    
+    # AI Mode Status Card
+    st.markdown("---")
+    st.subheader("🤖 AI Detection Status")
+    
+    # Get AI configuration from device twin (not from data)
+    if twin_available:
+        success, twin_data = get_device_twin_rest(device_id, conn_str)
+        if success:
+            desired = twin_data.get('properties', {}).get('desired', {})
+            ai_config = desired.get('ai_models', {})
+            
+            cloud_enabled = ai_config.get('cloud', {}).get('enabled', False)
+            local_enabled = ai_config.get('local', {}).get('anomaly_detection', {}).get('enabled', True)
+            
+            # Determine which AI is active based on twin configuration
+            if cloud_enabled:
+                ai_mode_status = "☁️ Cloud AI Active"
+                ai_color = "#4ECDC4"
+                
+                # Show cloud metrics if data exists
+                if 'cloud_is_anomaly' in df.columns:
+                    cloud_anomalies = len(df[df['cloud_is_anomaly'] == True])
+                    cloud_rate = (cloud_anomalies / total) * 100 if total > 0 else 0
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.markdown(f'<div style="background-color: {ai_color}; padding: 10px; border-radius: 5px; text-align: center; color: white; font-weight: bold;">{ai_mode_status}</div>', unsafe_allow_html=True)
+                    col2.metric("Cloud Anomalies", cloud_anomalies, f"{cloud_rate:.1f}%", delta_color="inverse")
+                    if 'cloud_anomaly_score' in latest and latest.get('cloud_anomaly_score') is not None:
+                        col3.metric("Latest Cloud Score", f"{latest.get('cloud_anomaly_score', 0):.3f}")
+                    else:
+                        col3.metric("Latest Cloud Score", "Waiting...")
+                    if 'cloud_prediction' in latest:
+                        col4.metric("Cloud Prediction", latest.get('cloud_prediction', 'N/A'))
+                    else:
+                        col4.metric("Cloud Prediction", "Waiting...")
+                else:
+                    st.markdown(f'<div style="background-color: {ai_color}; padding: 10px; border-radius: 5px; text-align: center; color: white; font-weight: bold;">{ai_mode_status}</div>', unsafe_allow_html=True)
+                    st.info("⏳ Waiting for cloud AI predictions... New data will appear shortly.")
+                    
+            elif local_enabled:
+                ai_mode_status = "💻 Local AI Active"
+                ai_color = "#95E1D3"
+                
+                col1, col2, col3 = st.columns(3)
+                col1.markdown(f'<div style="background-color: {ai_color}; padding: 10px; border-radius: 5px; text-align: center; color: white; font-weight: bold;">{ai_mode_status}</div>', unsafe_allow_html=True)
+                col2.metric("Local Anomalies", anomaly_count, f"{anomaly_rate:.1f}%", delta_color="inverse")
+                col3.metric("Latest Local Score", f"{latest.get('anomaly_score', 0):.3f}")
+            else:
+                ai_mode_status = "⚠️ No AI Active"
+                ai_color = "#FF6B6B"
+                st.markdown(f'<div style="background-color: {ai_color}; padding: 10px; border-radius: 5px; text-align: center; color: white; font-weight: bold;">{ai_mode_status}</div>', unsafe_allow_html=True)
+                st.info("Enable AI detection from the sidebar Device Twin Control section.")
+        else:
+            st.warning("⚠️ Unable to determine AI status - device twin not available")
+    else:
+        st.warning("⚠️ IoT Hub not configured - cannot determine AI status")
 
     # Anomaly alert
     if latest.get('is_anomaly'):
@@ -461,7 +572,11 @@ def main():
 
     # Historical trends & anomalies
     st.header("📉 Historical Trends")
-    tab1, tab2, tab3, tab4 = st.tabs(["CPU", "Memory", "Disk", "Network"])
+    tabs = ["CPU", "Memory", "Disk", "Network"]
+    if 'cloud_anomaly_score' in df.columns:
+        tabs.append("AI Comparison")
+    tab_objects = st.tabs(tabs)
+    tab1, tab2, tab3, tab4 = tab_objects[0], tab_objects[1], tab_objects[2], tab_objects[3]
     
     # Determine which CPU usage column exists
     cpu_usage_col = 'cpu_usage_percent' if 'cpu_usage_percent' in df.columns else 'cpu_usage'
@@ -482,6 +597,36 @@ def main():
     with tab4:
         st.plotly_chart(create_time_series_chart(df, 'network_sent_mb', 'Network Sent (MB)', '#A8E6CF'), use_container_width=True)
         st.plotly_chart(create_time_series_chart(df, 'network_recv_mb', 'Network Received (MB)', '#FFD3B6'), use_container_width=True)
+    
+    # AI Comparison tab
+    if len(tab_objects) > 4 and 'cloud_anomaly_score' in df.columns:
+        with tab_objects[4]:
+            st.subheader("🤖 Local vs Cloud AI Comparison")
+            
+            # Score comparison
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df['timestamp'], y=df['anomaly_score'], 
+                                    mode='lines', name='Local AI Score', line=dict(color='#4ECDC4')))
+            fig.add_trace(go.Scatter(x=df['timestamp'], y=df['cloud_anomaly_score'], 
+                                    mode='lines', name='Cloud AI Score', line=dict(color='#FF6B6B')))
+            fig.update_layout(title='Anomaly Score Comparison', xaxis_title='Time', yaxis_title='Score', hovermode='x unified')
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Agreement analysis
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Detection Agreement**")
+                agreement = df[df['is_anomaly'] == df['cloud_is_anomaly']]
+                agreement_rate = (len(agreement) / len(df)) * 100 if len(df) > 0 else 0
+                st.metric("Agreement Rate", f"{agreement_rate:.1f}%")
+                st.caption(f"{len(agreement)} out of {len(df)} readings")
+            
+            with col2:
+                st.markdown("**Prediction Distribution**")
+                local_anomalies = len(df[df['is_anomaly'] == True])
+                cloud_anomalies = len(df[df['cloud_is_anomaly'] == True])
+                st.write(f"Local AI: {local_anomalies} anomalies")
+                st.write(f"Cloud AI: {cloud_anomalies} anomalies")
     
     # Anomalies section
     st.header("⚠️ Anomalies")

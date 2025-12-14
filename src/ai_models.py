@@ -88,12 +88,23 @@ def generate_synthetic_data(n=100):
 def train_and_save_models(model_dir="./models"):
     """Train IsolationForest + Scaler → ONNX preferred, fallback PKL."""
     os.makedirs(model_dir, exist_ok=True)
-    X = load_real_data() or generate_synthetic_data()
+    X = load_real_data()
+    if X is None:
+        X = generate_synthetic_data()
     scaler = StandardScaler().fit(X)
     X_scaled = scaler.transform(X)
     model = IsolationForest(n_estimators=100, contamination=0.1, random_state=42).fit(X_scaled)
 
-    # ONNX export
+    # Always save PKL files first (guaranteed fallback)
+    pkl_model_path = os.path.join(model_dir, "model.pkl")
+    pkl_scaler_path = os.path.join(model_dir, "scaler.pkl")
+    with open(pkl_model_path, "wb") as f:
+        pickle.dump(model, f)
+    with open(pkl_scaler_path, "wb") as f:
+        pickle.dump(scaler, f)
+    logger.info("PKL models saved (fallback)")
+
+    # ONNX export (optional optimization)
     try:
         logger.info("Exporting ONNX models...")
         n_features = X.shape[1]
@@ -112,18 +123,10 @@ def train_and_save_models(model_dir="./models"):
         with open(os.path.join(model_dir, "model.onnx"), "wb") as f:
             f.write(model_onnx.SerializeToString())
 
-        logger.info("ONNX export successful → skipping PKL save")
-        return
+        logger.info("ONNX export successful (performance optimization)")
 
     except Exception as e:
-        logger.error(f"ONNX export failed → fallback to PKL: {e}")
-
-    # PKL fallback
-    with open(os.path.join(model_dir, "model.pkl"), "wb") as f:
-        pickle.dump(model, f)
-    with open(os.path.join(model_dir, "scaler.pkl"), "wb") as f:
-        pickle.dump(scaler, f)
-    logger.info("PKL models saved")
+        logger.warning(f"ONNX export failed (will use PKL): {e}")
 
 
 # --------------------------- LOCAL INFERENCE ---------------------------
@@ -188,10 +191,18 @@ class AnomalyDetector:
     FEATURES = ["cpu_temperature", "cpu_usage_percent", "memory_percent", "disk_percent", "network_sent_mb", "network_recv_mb"]
 
     def __init__(self, model_path=MODEL_DIR, prefer_onnx=True):
-        self.model_path = model_path
+        # model_path could be './models/model.onnx' or './models/model.pkl'
+        # Extract directory and use consistent naming
+        if os.path.isdir(model_path):
+            model_dir = model_path
+        else:
+            model_dir = os.path.dirname(model_path)
+        
+        self.model_dir = model_dir if model_dir else "./models"
         self.prefer_onnx = prefer_onnx
         self.onnx_model, self.onnx_scaler = None, None
         self.model, self.scaler = None, None
+        
         if prefer_onnx and self._load_onnx():
             logger.info("Using ONNX inference")
         else:
@@ -200,11 +211,12 @@ class AnomalyDetector:
 
     def _load_onnx(self):
         try:
-            m_path = self.model_path.replace(".pkl", ".onnx")
-            s_path = self.model_path.replace("model.pkl", "scaler.onnx")
+            m_path = os.path.join(self.model_dir, "model.onnx")
+            s_path = os.path.join(self.model_dir, "scaler.onnx")
             if os.path.exists(m_path) and os.path.exists(s_path):
                 self.onnx_model = ort.InferenceSession(m_path)
                 self.onnx_scaler = ort.InferenceSession(s_path)
+                logger.info(f"ONNX models loaded from {self.model_dir}")
                 return True
         except Exception as e:
             logger.error(f"ONNX load failed: {e}")
@@ -212,11 +224,13 @@ class AnomalyDetector:
 
     def _load_pkl(self):
         try:
-            with open(self.model_path, "rb") as f:
+            model_path = os.path.join(self.model_dir, "model.pkl")
+            scaler_path = os.path.join(self.model_dir, "scaler.pkl")
+            with open(model_path, "rb") as f:
                 self.model = pickle.load(f)
-            scaler_path = self.model_path.replace("model.pkl", "scaler.pkl")
             with open(scaler_path, "rb") as f:
                 self.scaler = pickle.load(f)
+            logger.info(f"PKL models loaded from {self.model_dir}")
         except Exception as e:
             logger.error(f"PKL load failed: {e}")
 
@@ -233,19 +247,57 @@ class AnomalyDetector:
     def predict(self, data: Dict[str, Any]) -> Tuple[bool, float]:
         x = self.extract_features(data)
 
-        if self.onnx_model:
+        if self.onnx_model and self.onnx_scaler:
             try:
-                xs = self.onnx_scaler.run(None, {self.onnx_scaler.get_inputs()[0].name: x})[0]
-                out = self.onnx_model.run(None, {self.onnx_model.get_inputs()[0].name: xs})
-                pred, score = out[0][0], -out[1][0][0]
-                return bool(pred == -1 or pred == 1), float(score)
+                # Scale the input
+                scaler_input_name = self.onnx_scaler.get_inputs()[0].name
+                xs = self.onnx_scaler.run(None, {scaler_input_name: x})[0]
+                
+                # Run model prediction
+                model_input_name = self.onnx_model.get_inputs()[0].name
+                outputs = self.onnx_model.run(None, {model_input_name: xs})
+                
+                # IsolationForest ONNX outputs:
+                # outputs[0] = labels (1 for inlier, -1 for outlier)
+                # outputs[1] = scores (anomaly scores)
+                
+                pred_label = outputs[0][0]  # Get prediction label
+                
+                # Handle anomaly score safely
+                if len(outputs) > 1:
+                    # Score is typically negative (more negative = more anomalous)
+                    raw_score = outputs[1][0]
+                    if isinstance(raw_score, (list, np.ndarray)):
+                        score = float(-raw_score[0])  # Negate to make positive anomaly scores
+                    else:
+                        score = float(-raw_score)
+                else:
+                    # If no score available, use binary prediction
+                    score = 1.0 if pred_label == -1 else 0.0
+                
+                # pred_label: -1 = anomaly, 1 = normal
+                is_anomaly = bool(pred_label == -1)
+                
+                logger.debug(f"ONNX prediction: label={pred_label}, score={score}, is_anomaly={is_anomaly}")
+                return is_anomaly, score
+                
             except Exception as e:
-                logger.error(f"ONNX inference failed: {e}")
+                logger.error(f"ONNX inference failed: {e}, falling back to PKL")
+                # Fall through to PKL inference
 
-        xs = self.scaler.transform(x)
-        pred = self.model.predict(xs)[0]
-        score = -self.model.score_samples(xs)[0]
-        return (pred == -1), float(score)
+        # PKL inference fallback
+        if self.model and self.scaler:
+            try:
+                xs = self.scaler.transform(x)
+                pred = self.model.predict(xs)[0]
+                score = -self.model.score_samples(xs)[0]
+                return (pred == -1), float(score)
+            except Exception as e:
+                logger.error(f"PKL inference failed: {e}")
+                return False, 0.0
+        
+        logger.error("No valid model available for prediction")
+        return False, 0.0
 
 
 # --------------------------- CLOUD AI ---------------------------
@@ -268,7 +320,17 @@ class AzureMLClient:
                 json={"data": data}, timeout=20
             )
             r.raise_for_status()
-            return r.json()
+            result = r.json()
+            
+            # Azure ML sometimes returns JSON as a string - parse it if needed
+            if isinstance(result, str):
+                result = json.loads(result)
+            
+            logger.info(f"Cloud AI prediction: {result}")
+            return result
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"Cloud AI HTTP error: {e.response.status_code} - {e.response.text[:200]}")
+            return None
         except Exception as e:
             logger.error(f"Cloud AI error: {e}")
             return None

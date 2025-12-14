@@ -367,15 +367,36 @@ class PiNetworkMonitor:
             if is_anom:
                 self.stats["anomalies_detected"] += 1
 
-            # Store local
-            self.local_storage.save_sensor_data(
-                data, anomaly_score=float(ml_score), is_anomaly=is_anom
-            )
-
             # Cloud AI
             cloud_analysis = None
+            cloud_anomaly_score = None
+            cloud_is_anomaly = False
+            cloud_prediction = None
+            
             if self.cloud_ai_enabled and self.cloud_ai_service:
                 cloud_analysis = self.cloud_ai_service.analyze_sensor_data(data)
+                logger.info(f"Cloud analysis result: {cloud_analysis}")
+                if cloud_analysis and cloud_analysis.get("cloud_analysis"):
+                    cloud_result = cloud_analysis["cloud_analysis"]
+                    logger.info(f"Cloud result type: {type(cloud_result)}, value: {cloud_result}")
+                    # Ensure cloud_result is a dict before calling .get()
+                    if isinstance(cloud_result, dict):
+                        cloud_anomaly_score = cloud_result.get("anomaly_score")
+                        cloud_is_anomaly = cloud_result.get("is_anomaly", False)
+                        cloud_prediction = cloud_result.get("prediction")
+                        logger.info(f"Extracted cloud data - score: {cloud_anomaly_score}, is_anomaly: {cloud_is_anomaly}, prediction: {cloud_prediction}")
+                    else:
+                        logger.warning(f"Cloud AI returned unexpected type: {type(cloud_result)} - {cloud_result}")
+
+            # Store local with cloud AI results
+            self.local_storage.save_sensor_data(
+                data, 
+                anomaly_score=float(ml_score), 
+                is_anomaly=is_anom,
+                cloud_anomaly_score=cloud_anomaly_score,
+                cloud_is_anomaly=cloud_is_anomaly,
+                cloud_prediction=cloud_prediction
+            )
 
             upload = {
                 **data,

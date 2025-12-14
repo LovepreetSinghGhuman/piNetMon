@@ -47,6 +47,9 @@ class QuestDBStorage:
             network_recv_mb DOUBLE,
             anomaly_score DOUBLE,
             is_anomaly BOOLEAN,
+            cloud_anomaly_score DOUBLE,
+            cloud_is_anomaly BOOLEAN,
+            cloud_prediction STRING,
             timestamp TIMESTAMP
         ) timestamp(timestamp) PARTITION BY DAY;
     """
@@ -60,10 +63,20 @@ class QuestDBStorage:
     def _request(self, sql: str, method: str = "get", timeout: int = 10) -> Optional[requests.Response]:
         try:
             if method.lower() == "post":
-                return requests.post(self.write_url, data=sql, timeout=timeout)
-            return requests.get(self.query_url, params={"query": sql}, timeout=timeout)
+                logger.debug(f"POST to {self.write_url}: {sql[:200]}")
+                response = requests.post(self.write_url, data=sql, timeout=timeout)
+                logger.debug(f"POST response: {response.status_code}")
+                return response
+            response = requests.get(self.query_url, params={"query": sql}, timeout=timeout)
+            return response
+        except requests.exceptions.Timeout as e:
+            logger.error(f"QuestDB request timeout after {timeout}s: {e}")
+            return None
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"QuestDB connection error: {e}")
+            return None
         except Exception as e:
-            logger.warning(f"QuestDB request failed: {e}")
+            logger.error(f"QuestDB request failed: {e}")
             return None
 
     def _ensure_table_exists(self):
@@ -73,7 +86,8 @@ class QuestDBStorage:
             self._request(self.TABLE_SQL)
 
     def save_sensor_data(self, data: Dict[str, Any], anomaly_score: Optional[float] = None,
-                         is_anomaly: bool = False) -> bool:
+                         is_anomaly: bool = False, cloud_anomaly_score: Optional[float] = None,
+                         cloud_is_anomaly: bool = False, cloud_prediction: Optional[str] = None) -> bool:
         try:
             device_id = data.get("device_id", "unknown")
             fields = {}
@@ -118,10 +132,27 @@ class QuestDBStorage:
             if anomaly_score is not None:
                 fields["anomaly_score"] = anomaly_score
             fields["is_anomaly"] = str(is_anomaly).lower()
+            
+            # Add cloud AI fields
+            if cloud_anomaly_score is not None:
+                fields["cloud_anomaly_score"] = cloud_anomaly_score
+            fields["cloud_is_anomaly"] = str(cloud_is_anomaly).lower()
+            if cloud_prediction:
+                # Escape quotes in the prediction string and wrap in double quotes for InfluxDB line protocol
+                escaped_prediction = str(cloud_prediction).replace('"', '\\"').replace("'", "\\'")
+                fields["cloud_prediction"] = f'"{escaped_prediction}"'
 
             line = f"sensor_data,device_id={device_id} " + ",".join(f"{k}={v}" for k, v in fields.items())
             resp = self._request(line, method="post", timeout=5)
-            return resp is not None and resp.status_code in [200, 204]
+            if resp is not None and resp.status_code in [200, 204]:
+                logger.debug(f"Data saved to QuestDB successfully")
+                return True
+            else:
+                status = resp.status_code if resp else "No response"
+                text = resp.text[:200] if resp else "Connection failed"
+                logger.error(f"QuestDB save failed: {status} - {text}")
+                logger.debug(f"Failed line: {line[:200]}")
+                return False
         except Exception as e:
             logger.error(f"Failed to save data: {e}")
             return False

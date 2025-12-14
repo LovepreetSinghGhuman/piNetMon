@@ -1,8 +1,8 @@
 # Raspberry Pi Network Monitoring Platform – Documentatie
 
 **Auteur:** Lovepreet Singh  
-**Versie:** 3.0  
-**Datum:** 12 december 2025  
+**Versie:** 3.1  
+**Datum:** 14 december 2025  
 **Project:** HOWEST TIC – CFAI Eindopdracht
 
 ---
@@ -241,10 +241,21 @@ Geavanceerde anomaly analysis via REST API.
 
 ```json
 {
+  "prediction": "normal",
+  "anomaly_score": 0.13033342361450195,
+  "confidence": 0.9739333152770996,
   "is_anomaly": false,
-  "anomaly_score": 0.23,
-  "timestamp": "2025-12-12T15:30:00Z"
+  "model_type": "onnx"
 }
+```
+
+**Belangrijk:** Azure ML endpoint retourneert JSON als string - dit wordt automatisch geparsed door `AzureMLClient.predict()`.
+
+**InfluxDB Line Protocol Fix:**
+Voor QuestDB opslag worden string velden correct ge-escaped:
+```python
+# Cloud prediction wordt opgeslagen met dubbele quotes
+fields["cloud_prediction"] = f'"{escaped_prediction}"'
 ```
 
 ```
@@ -351,9 +362,17 @@ CREATE TABLE sensor_data (
   network_recv_mb DOUBLE,
   anomaly_score DOUBLE,
   is_anomaly BOOLEAN,
+  cloud_anomaly_score DOUBLE,
+  cloud_is_anomaly BOOLEAN,
+  cloud_prediction STRING,
   timestamp TIMESTAMP
 ) timestamp(timestamp) PARTITION BY DAY;
 ```
+
+**Cloud AI Kolommen (Nieuw!):**
+- `cloud_anomaly_score`: Anomaly score van Azure ML endpoint (0.0 - 1.0)
+- `cloud_is_anomaly`: Boolean flag van cloud AI detectie
+- `cloud_prediction`: Prediction type ('normal' of 'anomaly')
 
 ---
 
@@ -380,8 +399,9 @@ Gebruikt voor:
 - Real-time metrics met auto-refresh (5-300s instelbaar)
 - Gauge charts voor CPU, Memory, Disk, Temperature
 - Historische trendgrafieken (1u, 6u, 12u, 24u, 2d, 7d)
-- Anomaly score scatter plots
-- CSV export functionaliteit
+- Anomaly score scatter plots (Local AI + Cloud AI)
+- **Cloud AI Status Display** - Toont cloud anomaly score en prediction
+- CSV/JSON export functionaliteit
 - Raw data viewer met filtering
 
 **Device Twin Control (Nieuw!):**
@@ -405,12 +425,25 @@ Enable/disable AI modellen en pas anomaly threshold aan:
 
 ```json
 {
-  "ai_models": {
-    "local": {"enabled": true},
-    "cloud": {"enabled": false},
-    "anomaly_threshold": 0.5
+  "ai_models":
+      "anomaly_detection": {
+        "enabled": true,
+        "thresholds": {
+          "cpu_temperature": 90.0,
+          "cpu_usage": 90.0,
+          "memory_percent": 85.0,
+          "disk_percent": 90.0
+        }
+      }
+    },
+    "cloud": {"enabled": true}
   }
 }
+```
+
+**Belangrijke opmerking:** Local AI en Cloud AI kunnen **niet tegelijk actief zijn**. Het dashboard biedt een radio button selector voor AI modus:
+- **Local AI** - ONNX/Pickle model op Raspberry Pi
+- **Cloud AI** - Azure ML endpoint (werkt alleen met internet connectie)
 ```
 
 #### 3. Sensor Toggle
@@ -620,16 +653,70 @@ requests>=2.31.0
 
 ---
 
-## 📄 9. Documentatieversie
+## � 9. Troubleshooting & Known Issues
 
-- Connection strings niet committen
-- Gebruik .env of Azure Key Vault
-- IoT Hub gebruikt SAS Tokens
-- Azure ML endpoint gebruikt API Keys
+### 9.1 Cloud AI Integration
+
+**Issue:** Dashboard toont "Waiting..." voor cloud AI scores
+
+**Diagnose stappen:**
+1. Controleer of cloud AI enabled is in Device Twin
+2. Verifieer Azure ML endpoint bereikbaar is (kan DNS issues hebben op Pi)
+3. Check `logs/monitor.log` voor Cloud AI errors
+
+**Veelvoorkomende errors:**
+
+```bash
+# DNS resolution failure (tijdelijke network issues)
+ERROR:ai_models:Cloud AI error: Failed to resolve 'pi-anomaly-endpoint.westeurope.inference.ml.azure.com'
+
+# QuestDB save failures door verkeerde string formatting
+ERROR:questdb_storage:QuestDB save failed: 400 - failed to parse line protocol
+```
+
+**Oplossing:**
+- Cloud AI vereist stabiele internet connectie
+- Bij DNS failures: wacht enkele seconden, Azure ML retry gebeurt automatisch
+- String escaping is gefixt in versie 3.1 (`cloud_prediction` wordt correct ge-escaped)
+
+### 9.2 QuestDB Write Issues
+
+**Symptoom:** Data wordt niet opgeslagen, maar QuestDB draait wel
+
+**Root cause:** InfluxDB line protocol vereist correcte string escaping
+
+**Fix (geïmplementeerd in v3.1):**
+```python
+# String velden moeten dubbele quotes hebben, niet enkele
+fields["cloud_prediction"] = f'"{escaped_prediction}"'  # Correct
+# fields["cloud_prediction"] = f"'{cloud_prediction}'"  # FOUT - veroorzaakt 400 error
+```
+
+### 9.3 Module Reloading
+
+**Issue:** Code updates worden niet direct actief na rsync
+
+**Oplossing:** Gebruik `deploy_pi.sh` voor volledige herstart:
+```bash
+./deploy_pi.sh  # Herstart alle services en herlaadt modules
+```
+
+**Waarom:** Python cached geïmporteerde modules. Een simpele process kill is niet voldoende - gebruik deployment script voor clean restart.
 
 ---
 
-## 🎯 10. Checklist Eindopdracht
+## 🔒 10. Security & Best Practices
+
+- Connection strings niet committen
+- Gebruik .env of Azure Key Vault
+- IoT Hub gebruikt SAS Tokens (roteer regelmatig)
+- Azure ML endpoint gebruikt API Keys (vernieuw maandelijks)
+- MongoDB connection strings bevatten credentials
+- Tailscale VPN voor veilige remote toegang (geen port forwarding nodig)
+
+---
+
+## 🎯 11. Checklist Eindopdracht
 
 **Minimumvereisten:**
 
@@ -658,10 +745,14 @@ requests>=2.31.0
 - ✔ QuestDB connection optimalisatie
 - ✔ Tailscale VPN met MagicDNS (3 devices, auto-start via systemd)
 - ✔ Device Twin remote configuratie via dashboard
+- ✔ Cloud AI volledige integratie met QuestDB opslag (v3.1)
+- ✔ Dashboard toggle tussen Local/Cloud AI (v3.1)
+- ✔ InfluxDB line protocol correcte string escaping (v3.1)
+- ✔ Azure ML JSON response parsing (v3.1)
 
 ---
 
-## 🧾 11. Conclusie
+## 🧾 12. Conclusie
 
 Dit platform combineert edge computing, cloud scalability, real-time analytics, en machine learning in één geïntegreerd IoT-systeem met moderne optimalisaties.
 
@@ -685,7 +776,9 @@ Dit platform combineert edge computing, cloud scalability, real-time analytics, 
 - Streamlit dashboard met real-time visualisatie
 - **Device Twin configuratie** vanuit dashboard
 - Remote sensor enable/disable
-- AI model toggle & threshold aanpassing
+- **AI model runtime toggle** - Local vs Cloud AI (exclusief)
+- Cloud AI status display met anomaly score & prediction
+- Threshold aanpassing voor local AI
 
 **Infrastructuur:**
 
@@ -704,7 +797,9 @@ Dit platform combineert edge computing, cloud scalability, real-time analytics, 
 
 **Data Processing:**
 
-- QuestDB: 15-20s timeout optimalisatie
+- QuestDB: 15-20s timeout optimalisati
+- **Cloud AI data opslag** met correct string escaping
+- Dual AI score tracking (local + cloud in dezelfde tabel)e
 - Time-series partitioning per dag
 - Miljoenen rows/sec ingestie capacity
 
@@ -718,7 +813,9 @@ Dit platform combineert edge computing, cloud scalability, real-time analytics, 
 **Remote Management:**
 
 - Device Twin updates via dashboard
-- Collection interval configuratie
+- **AI model runtime switching** (Local ↔ Cloud)
+- Real-time AI mode status indicator
+- Cloud AI prediction tracking in QuestDBuratie
 - Sensor enable/disable toggle
 - AI model runtime switching
 
