@@ -186,6 +186,13 @@ else
     deactivate
 fi
 
+# 6. Show which AI model will be used (ONNX or PKL)
+echo ""
+echo "6. Checking Local AI Model Preference..."
+source pivenv/bin/activate
+python3 -c "import sys; sys.path.insert(0, 'src'); from ai_models import AnomalyDetector; det = AnomalyDetector(); print(f'Local AI model selected: {'ONNX' if det.onnx_model else 'PKL'}')" || echo "Could not determine AI model preference."
+deactivate
+
 # Summary
 echo ""
 echo "=================================="
