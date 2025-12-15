@@ -4,10 +4,10 @@
 
 set -e  # Exit on error
 
-echo "=================================="
-echo "Pi Network Monitor - Deployment"
-echo "=================================="
-echo ""
+echo ==================================
+echo Pi Network Monitor - Deployment
+echo ==================================
+echo
 
 # Get script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -16,7 +16,7 @@ cd "$SCRIPT_DIR"
 # Load configuration from config.json
 CONFIG_FILE="$SCRIPT_DIR/config/config.json"
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Error: config.json not found at $CONFIG_FILE"
+    echo Error: config.json not found at $CONFIG_FILE
     exit 1
 fi
 
@@ -84,7 +84,7 @@ if command -v tailscale &> /dev/null; then
 fi
 
 # 1. Check Docker service
-echo "1. Checking Docker..."
+echo 1. Checking Docker...
 if systemctl is-active --quiet docker; then
     print_status "Docker service is running"
 else
@@ -95,8 +95,8 @@ else
 fi
 
 # 2. Start QuestDB container
-echo ""
-echo "2. Starting QuestDB..."
+echo
+echo 2. Starting QuestDB...
 if docker ps | grep -q "$QDB_CONTAINER"; then
     print_status "QuestDB is already running"
 else
@@ -125,8 +125,8 @@ sleep 3
 python3 -c "import requests; r = requests.get('http://localhost:$QDB_PORT_HTTP/exec', params={'query': 'SELECT 1'}, timeout=15); exit(0 if r.status_code == 200 else 1)" 2>/dev/null && print_status "QuestDB is accessible" || print_warning "QuestDB may not be ready yet (will retry on first use)"
 
 # 3. Test MongoDB Atlas connection
-echo ""
-echo "3. Testing MongoDB Atlas (Backup Storage)..."
+echo
+echo 3. Testing MongoDB Atlas (Backup Storage)...
 python3 -c "
 import sys
 sys.path.insert(0, 'src')
@@ -150,8 +150,8 @@ except Exception as e:
 " && print_status "MongoDB backup ready" || print_warning "MongoDB backup unavailable (app will continue without backup)"
 
 # 4. Start Streamlit Dashboard (in background)
-echo ""
-echo "4. Starting Streamlit Dashboard..."
+echo
+echo 4. Starting Streamlit Dashboard...
 if pgrep -f "streamlit run.*dashboard.py" > /dev/null; then
     print_status "Streamlit is already running"
 else
@@ -168,8 +168,8 @@ else
 fi
 
 # 5. Start Main Monitoring Application (in background)
-echo ""
-echo "5. Starting Main Monitoring Application..."
+echo
+echo 5. Starting Main Monitoring Application...
 if pgrep -f "python.*src/main.py" > /dev/null; then
     print_status "Main application is already running"
 else
@@ -187,43 +187,43 @@ else
 fi
 
 # 6. Show which AI model will be used (ONNX or PKL)
-echo ""
-echo "6. Checking Local AI Model Preference..."
+echo
+echo 6. Checking Local AI Model Preference...
 source pivenv/bin/activate
 python3 -c "import sys; sys.path.insert(0, 'src'); from ai_models import AnomalyDetector; det = AnomalyDetector(); print(f'Local AI model selected: {'ONNX' if det.onnx_model else 'PKL'}')" || echo "Could not determine AI model preference."
 deactivate
 
 # Summary
-echo ""
-echo "=================================="
-echo "Deployment Summary"
-echo "=================================="
-echo ""
-echo "Storage Services:"
+echo
+echo ==================================
+echo Deployment Summary
+echo ==================================
+echo
+echo Storage Services:
 echo "  Primary:  QuestDB (Local Time-Series DB)"
 docker ps --filter "name=$QDB_CONTAINER" --format "    - {{.Names}}: {{.Status}}"
 echo "  Backup:   MongoDB Atlas ($MONGO_DB.$MONGO_COLLECTION)"
-echo ""
-echo "Running Processes:"
+echo
+echo Running Processes:
 pgrep -af "streamlit|src/main.py" || echo "  No monitoring processes found"
-echo ""
-echo "Logs:"
+echo
+echo Logs:
 echo "  - Dashboard: $LOG_DASHBOARD"
 echo "  - Main App:  $LOG_MAIN"
-echo ""
-echo "Access Points:"
+echo
+echo Access Points:
 echo "  Local Network:"
 echo "    - Dashboard:  http://$(hostname -I | awk '{print $1}'):$DASH_PORT"
 echo "    - QuestDB UI: http://$(hostname -I | awk '{print $1}'):$QDB_PORT_HTTP"
 if [ -n "$TAILSCALE_HOSTNAME" ]; then
-    echo ""
+    echo
     echo "  Tailscale (Remote Access):"
     echo "    - Dashboard:  http://$TAILSCALE_HOSTNAME:$DASH_PORT"
     echo "    - QuestDB UI: http://$TAILSCALE_HOSTNAME:$QDB_PORT_HTTP"
 fi
-echo ""
+echo
 print_status "Deployment complete!"
-echo ""
+echo
 print_info "MongoDB backup storage will be checked when main app starts"
 
 # Optional: Sync updated files to remote Pi
