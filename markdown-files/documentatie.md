@@ -1,285 +1,182 @@
-# Raspberry Pi Network Monitoring Platform – Documentatie
+# Documentatie – IoT Eindopdracht (Howest MTS5 - TI - Cloud Computing for AI)
 
-**Auteur:** Lovepreet Singh  
-**Versie:** 3.1  
-**Datum:** 14 december 2025  
+## Inleiding
 
-## 🛡️ Troubleshooting & Best Practices
+Dit project is een IoT-oplossing ontwikkeld voor de Raspberry Pi 4 Model B (1GB RAM) als onderdeel van de eindopdracht voor het vak Cloud Computing for AI aan Howest. Het systeem monitort sensordata, verwerkt deze lokaal en in de cloud, en visualiseert alles via een Streamlit-dashboard.
 
-### Veelvoorkomende issues
+## Architectuur
 
-- **Cloud AI 'Waiting...':** Check Device Twin config, Azure ML endpoint bereikbaarheid, logs/monitor.log. Oplossing: stabiele internetverbinding, retry logic, string escaping gefixt in v3.1.
-- **QuestDB write errors:** Foutieve string escaping. Oplossing: dubbele quotes voor stringvelden (v3.1).
-- **Code updates niet actief:** Gebruik altijd `deploy_pi.sh` voor een volledige herstart.
+Hieronder vind je een overzicht van de architectuur van het systeem:
 
-### Security
+```text
+// Architectuurdiagram
++----------------+      +---------------+      +-----------------+
+|  Raspberry Pi  | ---> |  Azure IoT Hub| ---> |  Azure Function |
++----------------+      +---------------+      +-----------------+
+      | Telemetry (JSON)     | Trigger           | Process/Store
+      v                      v                    v
++---------------------------------------------------------------+
+| QuestDB | MongoDB Atlas | Azure Blob | Azure ML Endpoint      |
++---------------------------------------------------------------+
+      |
+      v
++----------------------+
+| Streamlit Dashboard  |
++----------------------+
+```  
 
-- Commit nooit secrets of connection strings
-- Gebruik .env of Azure Key Vault
-- Roteer SAS tokens/API keys regelmatig
-- Tailscale VPN voor veilige remote toegang
+## Hoofdcomponenten en Werking
 
----
+### 1. Raspberry Pi & Sensoren
 
-## ✅ Eindopdracht Checklist
+De Raspberry Pi 4 B draait het hoofdprogramma (`src/main.py`) en verzamelt periodiek data van verschillende sensoren:
 
-**Minimum:**
+- **CPU-temperatuur, -gebruik, -frequentie**
+- **Geheugen- en schijfgebruik**
+- **Netwerkverkeer**
+De `SensorCollector` module leest deze waarden uit het systeem en structureert ze als JSON.
 
-- Raspberry Pi monitort systeemdata
-- Lokale opslag (QuestDB)
-- Cloud opslag (IoT Hub, MongoDB)
-- Edge AI (Isolation Forest + Threshold)
-- Cloud AI (Azure ML)
-- Dashboard
-- Remote configuratie
-- Documentatie
+### 2. Lokale Opslag (QuestDB)
 
-**Bonus:**
+De sensordata wordt lokaal opgeslagen in QuestDB, een snelle time-series database. De module `questdb_storage.py` zorgt voor het aanmaken van de juiste tabellen en het wegschrijven van data via HTTP API. Hierdoor kan de data lokaal geanalyseerd en bewaard worden, zelfs zonder internetverbinding.
 
-- Azure Functions, QuestDB Cloud, MongoDB Atlas
-- Direct Methods, Device Twin, Async I/O
-- Dockerized QuestDB, ONNX Runtime, Tailscale VPN
-- Deployment automation, real data training, dual AI score tracking
+### 3. Lokale AI-modellen
 
----
+Met de module `ai_models.py` wordt een IsolationForest-model getraind op de sensordata. Dit model wordt geëxporteerd naar ONNX-formaat voor snelle inferentie met ONNX Runtime. De Pi detecteert zo lokaal anomalieën (bv. abnormale temperatuurstijgingen). De drempelwaarde en modelinstellingen zijn configureerbaar in `config/config.json`.
 
-## 🧾 Conclusie
+### 4. Cloud Integratie (Azure IoT Hub)
 
-Dit platform combineert edge computing, cloud scalability, real-time analytics en machine learning in één geïntegreerd IoT-systeem. Alle onderdelen zijn modulair, schaalbaar en veilig opgezet, met moderne optimalisaties voor performance en beheer.
+De `cloud_integration.py` module stuurt de sensordata (en AI-resultaten) als JSON-berichten naar Azure IoT Hub. Dit gebeurt veilig en betrouwbaar, met ondersteuning voor device twin updates (remote configuratie).
 
----
+### 5. Azure Function & Cloud Opslag
 
-### Tailscale VPN
+Een Azure Function (zie `azure-functions/IoTHubTrigger/`) wordt getriggerd door nieuwe berichten in IoT Hub. Deze functie:
 
-- 3 devices: Pi, laptop, desktop
-- MagicDNS, hostname-based toegang, systemd auto-start
-- Toegang: ssh, dashboard, QuestDB via Tailscale hostname
+- Verrijkt en verwerkt de data
+- Voert optioneel cloudgebaseerde AI-analyse uit via een Azure ML Endpoint (`azure-ml/score.py`)
+- Slaat de data op in Azure Blob Storage en/of MongoDB Atlas voor centrale opslag en analyse
 
-### Projectstructuur
+### 6. Cloud AI-model (Azure ML)
 
-Zie codeblok voor overzicht van alle directories, scripts en modellen.
+Het cloudmodel wordt getraind en gedeployed via scripts in `azure-ml/`. Zowel ONNX als PKL-modellen worden ondersteund. De Azure ML Endpoint voert inferentie uit op binnenkomende data voor extra anomaliedetectie.
 
----
+### 7. Streamlit Dashboard
 
-## 📡 Architectuur
+Het dashboard (`dashboard/dashboard.py`) biedt:
 
-```
-┌───────────────┐      ┌───────────────┐      ┌───────────────┐
-│ Raspberry Pi  │──→──▶ Azure IoT Hub │──→──▶ Azure Function │
-└──────┬────────┘      └──────┬────────┘      └──────┬────────┘
-       │ Telemetry (JSON)     │ Trigger             │ Process/Store
-       ▼                      ▼                     ▼
-   ┌──────────────────────────────────────────────────────────────┐
-   │ QuestDB │ MongoDB Atlas │ Azure Blob │ Azure ML Endpoint    │
-   └──────────────────────────────────────────────────────────────┘
-       │
-       ▼
-   ┌──────────────────────┐
-   │ Streamlit Dashboard  │
-   └──────────────────────┘
-```
+- Realtime visualisatie van alle sensordata en AI-resultaten
+- Overzicht van anomalieën
+- Mogelijkheid tot het aanpassen van instellingen (device twin)
+- Toegang tot historische data via QuestDB
 
-## � 9. Troubleshooting & Known Issues
+### 8. Configuratie
 
-### 9.1 Cloud AI Integration
+Alle instellingen (sensoren, AI, cloud, opslag) zijn centraal beheerd in `config/config.json`. Dit maakt het systeem flexibel en makkelijk aanpasbaar, zowel lokaal als op afstand via het dashboard of IoT Hub.
 
-**Issue:** Dashboard toont "Waiting..." voor cloud AI scores
+### 9. Bestandsstructuur (Belangrijkste onderdelen)
 
-**Diagnose stappen:**
+- `src/` – Hoofdcode: sensoren, AI, cloud, opslag
+- `dashboard/` – Streamlit dashboard
+- `azure-functions/` – Azure Function code voor cloudverwerking
+- `azure-ml/` – Scripts voor training en deployment van cloud AI-modellen
+- `config/` – Configuratiebestanden
+- `requirements.txt` – Alle benodigde Python-pakketten
 
-1. Controleer of cloud AI enabled is in Device Twin
-2. Verifieer Azure ML endpoint bereikbaar is (kan DNS issues hebben op Pi)
-3. Check `logs/monitor.log` voor Cloud AI errors
+## Checklist & Eisen (op basis van opdracht.md)
 
-**Veelvoorkomende errors:**
+- ✅ Minstens één sensor die data vastlegt (CPU, temperatuur, geheugen, netwerk, ...)
+- ✅ Data wordt lokaal opgeslagen (QuestDB)
+- ✅ Data wordt doorgestuurd naar de cloud (Azure IoT Hub)
+- ✅ Data wordt in de cloud opgeslagen (Azure Blob, MongoDB Atlas)
+- ✅ Minstens één lokaal AI-model (IsolationForest, ONNX Runtime)
+- ✅ Minstens één AI-model in de cloud (Azure ML Endpoint)
+- ✅ Gebruiker kan interageren met het IoT-device (Streamlit dashboard, device twin)
+- ✅ Configuratie van het toestel kan vanop afstand bekeken en aangepast worden (IoT Hub device twin, dashboard)
+- ✅ Dashboard aanwezig (Streamlit)
+- ✅ Rapport "documentatie.md" (dit bestand)
+- ✅ requirements.txt aanwezig met alle nodige Python-pakketten
+- ✅ Raspberry Pi aanwezig in de flow
 
-```bash
-# DNS resolution failure (tijdelijke network issues)
-ERROR:ai_models:Cloud AI error: Failed to resolve 'pi-anomaly-endpoint.westeurope.inference.ml.azure.com'
+## Dataflow en Interactie
 
-# QuestDB save failures door verkeerde string formatting
-ERROR:questdb_storage:QuestDB save failed: 400 - failed to parse line protocol
-```
+1. Sensoren verzamelen data → lokaal verwerkt en opgeslagen (QuestDB)
+2. Lokale AI detecteert anomalieën → resultaten toegevoegd aan data
+3. Data + AI-resultaten worden via Azure IoT Hub naar de cloud gestuurd
+4. Azure Function verwerkt, verrijkt en slaat data op in Azure/MongoDB
+5. Cloud AI-model voert extra analyse uit (optioneel)
+6. Streamlit-dashboard toont alles realtime en laat device management toe
+7. Configuratie kan zowel lokaal als via de cloud aangepast worden
 
-**Oplossing:**
+## Tech Stack & Gebruikte Technologieën
 
-- Cloud AI vereist stabiele internet connectie
-- Bij DNS failures: wacht enkele seconden, Azure ML retry gebeurt automatisch
-- String escaping is gefixt in versie 3.1 (`cloud_prediction` wordt correct ge-escaped)
+| Component            | Technologie / Service        | Rol / Functie                                               |
+|----------------------|------------------------------|-------------------------------------------------------------|
+| Sensoren             | psutil, Python               | Uitlezen van CPU, geheugen, disk, netwerk, temperatuur      |
+| Raspberry Pi         | Raspbian OS, Python 3.11+    | Edge device, draait alle lokale code                        |
+| Lokale opslag        | QuestDB                      | Time-series database voor sensordata                        |
+| Lokale AI            | scikit-learn, ONNX Runtime   | Anomaliedetectie, modeltraining & inferentie                |
+| Cloud connectie      | Azure IoT Hub, azure-iot-device | Veilige dataoverdracht naar de cloud                     |
+| Cloud verwerking     | Azure Functions (Python)     | Verwerking, verrijking en opslag van data                   |
+| Cloud opslag         | Azure Blob Storage, MongoDB Atlas | Centrale opslag van ruwe en verwerkte data             |
+| Cloud AI             | Azure ML, ONNX, PKL          | Cloud inferentie, model deployment                          |
+| Dashboard            | Streamlit, Plotly, Pandas    | Realtime visualisatie, device management                    |
+| Remote Access        | Tailscale                    | Veilige, eenvoudige toegang tot de Pi op afstand            |
+| Configuratiebeheer   | JSON, Device Twin (IoT Hub)  | Instellingen lokaal en op afstand beheren                   |
+| Overige              | requests, pymongo, skl2onnx  | API-calls, MongoDB integratie, modelconversie               |
 
-### 9.2 QuestDB Write Issues
+### Korte toelichting per technologie
 
-**Symptoom:** Data wordt niet opgeslagen, maar QuestDB draait wel
+- **psutil**: Leest systeemstatistieken uit op de Pi.
+- **QuestDB**: Snelle opslag en query van tijdsreeksen, lokaal op de Pi.
+- **scikit-learn**: Training van AI-modellen (IsolationForest).
+- **ONNX Runtime**: Snelle inferentie van AI-modellen op edge en cloud.
+- **azure-iot-device**: Python SDK voor communicatie met Azure IoT Hub.
+- **Azure IoT Hub**: Device management, veilige data-ingest.
+- **Azure Functions**: Serverless verwerking van binnenkomende berichten.
+- **Azure ML**: Training, deployment en inferentie van cloudmodellen.
+- **MongoDB Atlas**: Multi-cloud opslag, schaalbaar en flexibel.
+- **Streamlit**: Webdashboard voor visualisatie en interactie.
+- **Tailscale**: VPN-oplossing voor eenvoudige, veilige remote toegang tot de Raspberry Pi, zonder poort-forwarding.
+- **Device Twin**: Synchronisatie van configuratie tussen cloud en device.
+- **skl2onnx**: Conversie van scikit-learn modellen naar ONNX-formaat.
+- **requests/pymongo**: HTTP- en databasecommunicatie.
 
-**Root cause:** InfluxDB line protocol vereist correcte string escaping
+## Security & Privacy
 
-**Fix (geïmplementeerd in v3.1):**
+Beveiliging en privacy zijn belangrijke aspecten van dit IoT-project. Hieronder een overzicht van de genomen maatregelen:
 
-```python
-# String velden moeten dubbele quotes hebben, niet enkele
-fields["cloud_prediction"] = f'"{escaped_prediction}"'  # Correct
-# fields["cloud_prediction"] = f"'{cloud_prediction}'"  # FOUT - veroorzaakt 400 error
-```
+- **Authenticatie & Autorisatie**
+      - Azure IoT Hub vereist device keys voor elke Pi; alleen geregistreerde apparaten kunnen data sturen.
+      - Azure Functions en ML Endpoints zijn beveiligd met Azure Active Directory en toegangsrechten.
 
-### 9.3 Module Reloading
+- **Encryptie**
+      - Alle communicatie tussen de Pi en Azure IoT Hub verloopt via TLS/SSL (end-to-end encryptie).
+      - Data in Azure Blob Storage en MongoDB Atlas wordt standaard versleuteld opgeslagen.
 
-**Issue:** Code updates worden niet direct actief na rsync
+- **Remote Access (Tailscale)**
+      - Tailscale gebruikt WireGuard VPN-technologie voor veilige, end-to-end versleutelde verbindingen.
+      - Alleen geautoriseerde gebruikers in het Tailscale-netwerk kunnen de Pi bereiken.
 
-**Oplossing:** Gebruik `deploy_pi.sh` voor volledige herstart:
-```bash
-./deploy_pi.sh  # Herstart alle services en herlaadt modules
-```
+- **Privacy**
+      - Er worden enkel technische sensordata en systeemstatistieken verzameld, geen persoonsgegevens.
+      - Configuratiebestanden kunnen worden aangepast om dataminimalisatie toe te passen.
 
-**Waarom:** Python cached geïmporteerde modules. Een simpele process kill is niet voldoende - gebruik deployment script voor clean restart.
+Deze maatregelen zorgen ervoor dat data veilig wordt verzonden, opgeslagen en enkel toegankelijk is voor bevoegde gebruikers.
 
----
+### Integratie-overzicht
 
-## 🔒 10. Security & Best Practices
+- **Edge ↔ Cloud**: Data en AI-resultaten worden via IoT Hub naar de cloud gestuurd. Device Twin zorgt voor tweerichtingsconfiguratie.
+- **Cloud ↔ Dashboard**: Dashboard haalt data op uit QuestDB (lokaal) en toont cloudstatussen. Instellingen kunnen via het dashboard worden aangepast en gesynchroniseerd.
+- **Remote Access**: Via Tailscale kan de beheerder of docent de Raspberry Pi veilig op afstand bereiken voor beheer, troubleshooting of demonstraties, zonder complexe netwerkinstellingen.
 
-- Connection strings niet committen
-- Gebruik .env of Azure Key Vault
-- IoT Hub gebruikt SAS Tokens (roteer regelmatig)
-- Azure ML endpoint gebruikt API Keys (vernieuw maandelijks)
-- MongoDB connection strings bevatten credentials
-- Tailscale VPN voor veilige remote toegang (geen port forwarding nodig)
+Zie requirements.txt voor een volledig overzicht van alle gebruikte Python-pakketten.
 
----
+## Opmerkingen
 
-## 🎯 11. Checklist Eindopdracht
-
-**Minimumvereisten:**
-
-- ✔ Raspberry Pi monitort systeemdata
-- ✔ Lokale opslag (QuestDB + SQLite fallback)
-- ✔ Cloud opslag (IoT Hub + MongoDB)
-- ✔ Edge AI (Isolation Forest + Threshold)
-- ✔ Cloud AI (Azure ML)
-- ✔ Dashboard
-- ✔ Remote configuratie
-- ✔ Documentatie
-
-**Bonus Features:**
-
-- ✔ Azure Functions
-- ✔ QuestDB (Docker + Cloud)
-- ✔ MongoDB Atlas
-- ✔ Direct Methods
-- ✔ Device Twin met dashboard control
-- ✔ Async I/O
-- ✔ Dockerized QuestDB met auto-restart
-- ✔ Unified AI module (ONNX + pickle dual export)
-- ✔ ONNX Runtime voor 2-3x snellere inferencing
-- ✔ Deployment automation met Tailscale support
-- ✔ Real data training (374+ samples)
-- ✔ QuestDB connection optimalisatie
-- ✔ Tailscale VPN met MagicDNS (3 devices, auto-start via systemd)
-- ✔ Device Twin remote configuratie via dashboard
-- ✔ Cloud AI volledige integratie met QuestDB opslag (v3.1)
-- ✔ Dashboard toggle tussen Local/Cloud AI (v3.1)
-- ✔ InfluxDB line protocol correcte string escaping (v3.1)
-- ✔ Azure ML JSON response parsing (v3.1)
+- Het project is ontworpen voor eenvoudige uitrol op een Raspberry Pi 4 B (1GB RAM).
+- De code is modulair opgebouwd en makkelijk uitbreidbaar met extra sensoren of AI-modellen.
+- Voor meer details, zie de broncode en config-bestanden.
 
 ---
 
-## 🧾 12. Conclusie
-
-Dit platform combineert edge computing, cloud scalability, real-time analytics, en machine learning in één geïntegreerd IoT-systeem met moderne optimalisaties.
-
-### Kerncomponenten
-
-**AI & ML:**
-
-- Unified AI module (`ai_models.py`) met **ONNX-optimalisatie**
-- Dual-format model export (ONNX + pickle)
-- 2-3x snellere edge inference
-- Cloud AI via Azure ML (Python 3.11 runtime)
-
-**Data & Storage:**
-
-- QuestDB time-series opslag (Docker met auto-restart)
-- MongoDB Atlas voor redundantie
-- 374+ real sensor samples voor training
-
-**Dashboard & Control:**
-
-- Streamlit dashboard met real-time visualisatie
-- **Device Twin configuratie** vanuit dashboard
-- Remote sensor enable/disable
-- **AI model runtime toggle** - Local vs Cloud AI (exclusief)
-- Cloud AI status display met anomaly score & prediction
-- Threshold aanpassing voor local AI
-
-**Infrastructuur:**
-
-- Azure serverless verwerking (IoT Hub + Functions)
-- Deployment automation met `deploy_pi.sh` en `stop_pi.sh`
-- Tailscale VPN voor veilige remote toegang
-- Systemd auto-start voor alle services
-
-### Technische Prestaties
-
-**Inferencing:**
-
-- ONNX: ~1-2ms per prediction
-- Pickle fallback: ~3-5ms per prediction
-- Model size: 35% reductie met ONNX
-
-**Data Processing:**
-
-- QuestDB: 15-20s timeout optimalisati
-- **Cloud AI data opslag** met correct string escaping
-- Dual AI score tracking (local + cloud in dezelfde tabel)e
-- Time-series partitioning per dag
-- Miljoenen rows/sec ingestie capacity
-
-**Deployment:**
-
-- Graceful shutdown & startup scripts
-- Background process management
-- Comprehensive logging (main + dashboard)
-- Tailscale hostname auto-detection
-
-**Remote Management:**
-
-- Device Twin updates via dashboard
-- **AI model runtime switching** (Local ↔ Cloud)
-- Real-time AI mode status indicator
-- Cloud AI prediction tracking in QuestDBuratie
-- Sensor enable/disable toggle
-- AI model runtime switching
-
----
-
-### Tech Stack Overzicht
-
-| Component | Technologie |
-|-----------|-------------|
-| **Edge Device** | Raspberry Pi 4 |
-| **OS** | Raspberry Pi OS (Debian) |
-| **Runtime** | Python 3.13 (local), Python 3.11 (Azure ML) |
-| **AI Framework** | scikit-learn 1.8.0 |
-| **Inference** | ONNX Runtime 1.16.0+ |
-| **Time-Series DB** | QuestDB (Docker) |
-| **Cloud DB** | MongoDB Atlas |
-| **Dashboard** | Streamlit 1.29.0 |
-| **Cloud Platform** | Microsoft Azure |
-| **IoT Protocol** | Azure IoT Hub (MQTT/AMQP) |
-| **ML Deployment** | Azure ML Managed Endpoints |
-| **Networking** | Tailscale VPN (MagicDNS) |
-| **Containerization** | Docker |
-| **Orchestration** | Bash scripts + systemd |
-
----
-
-### Health Score Berekening
-
-```python
-score = 100
-score -= cpu_usage * 0.3
-score -= memory_usage * 0.25
-score -= disk_usage * 0.25
-score -= (cpu_temperature / 100) * 20
-score = max(0, min(100, score))
-```
-
----
+*Deze documentatie is bedoeld voor de docent als overzicht van de architectuur en werking van het project. Deployment-instructies en diepgaande technische details zijn bewust weggelaten.*
