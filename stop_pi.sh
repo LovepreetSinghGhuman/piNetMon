@@ -30,7 +30,6 @@ if pgrep -f "python.*src/main.py" > /dev/null; then
     sleep 2
     if pgrep -f "python.*src/main.py" > /dev/null; then
         pkill -9 -f "python.*src/main.py"
-        print_warning "Main app force killed"
     fi
     print_status "Main app stopped"
 else

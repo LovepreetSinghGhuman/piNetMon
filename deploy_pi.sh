@@ -131,11 +131,6 @@ start_service "$DASHBOARD_PATTERN" "streamlit run $DASHBOARD_SCRIPT --server.add
 # Start Main App
 start_service "$MAIN_APP_PATTERN" "python3 $MAIN_APP_SCRIPT" "$MAIN_APP_LOG" "Main Monitoring App"
 
-# 6. Show which AI model will be used (ONNX or PKL)
-source pivenv/bin/activate
-python3 -c "import sys; sys.path.insert(0, 'src'); from ai_models import AnomalyDetector; det = AnomalyDetector(); print(f'AI model: {'ONNX' if det.onnx_model else 'PKL'}')" || echo "AI model preference unknown."
-deactivate
-
 # Summary
 echo
 echo "========== Deployment Summary =========="
@@ -164,8 +159,9 @@ done
 # Logs
 echo
 echo "Logs:"
-echo "  - Dashboard: $LOG_DASHBOARD"
-echo "  - Main App:  $LOG_MAIN"
+echo "  - Directory: $LOG_DIR"
+echo "  - Dashboard: $DASHBOARD_LOG"
+echo "  - Main App:  $MAIN_APP_LOG"
 
 # Access Points
 echo
