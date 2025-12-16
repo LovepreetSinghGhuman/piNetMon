@@ -1,3 +1,12 @@
+  "pi_user": "admin",
+  "pi_project_path": "/home/admin/piNetMon/",
+  "sync_excludes": [
+    "__pycache__",
+    "data",
+    ".vscode",
+    "pivenv",
+    "*.pyc"
+  ],
 {
   "azure": {
     "subscription_id": "sample-subscription-id",
