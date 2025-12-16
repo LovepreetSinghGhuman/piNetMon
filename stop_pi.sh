@@ -1,13 +1,7 @@
 #!/bin/bash
-# Pi Network Monitor Shutdown Script
-# Stops all running services
+# Pi Network Monitor Shutdown Script (Cleaned)
 
 set -e  # Exit on error
-
-echo "=================================="
-echo "Pi Network Monitor - Shutdown"
-echo "=================================="
-echo ""
 
 # Get script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -21,63 +15,42 @@ else
     QDB_CONTAINER="questdb"
 fi
 
-# Colors for output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Function to print status
-print_status() {
-    echo -e "${GREEN}✓${NC} $1"
-}
-
-print_warning() {
-    echo -e "${YELLOW}⚠${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}✗${NC} $1"
-}
-
-print_info() {
-    echo -e "${BLUE}ℹ${NC} $1"
-}
+print_status() { echo -e "${GREEN}✓${NC} $1"; }
+print_warning() { echo -e "${YELLOW}⚠${NC} $1"; }
+print_error() { echo -e "${RED}✗${NC} $1"; }
 
 # 1. Stop Main Monitoring Application
-echo "1. Stopping Main Monitoring Application..."
 if pgrep -f "python.*src/main.py" > /dev/null; then
-    print_info "Closing MongoDB backup connection..."
     pkill -f "python.*src/main.py"
     sleep 2
     if pgrep -f "python.*src/main.py" > /dev/null; then
-        print_warning "Process still running, force killing..."
         pkill -9 -f "python.*src/main.py"
+        print_warning "Main app force killed"
     fi
-    print_status "Main application stopped (MongoDB backup disconnected)"
+    print_status "Main app stopped"
 else
-    print_warning "Main application was not running"
+    print_warning "Main app was not running"
 fi
 
 # 2. Stop Streamlit Dashboard
-echo ""
-echo "2. Stopping Streamlit Dashboard..."
 if pgrep -f "streamlit run.*dashboard.py" > /dev/null; then
     pkill -f "streamlit run.*dashboard.py"
     sleep 2
     if pgrep -f "streamlit run.*dashboard.py" > /dev/null; then
-        print_warning "Process still running, force killing..."
         pkill -9 -f "streamlit run.*dashboard.py"
+        print_warning "Streamlit force killed"
     fi
-    print_status "Streamlit dashboard stopped"
+    print_status "Streamlit stopped"
 else
-    print_warning "Streamlit dashboard was not running"
+    print_warning "Streamlit was not running"
 fi
 
 # 3. Stop QuestDB container
-echo ""
-echo "3. Stopping QuestDB..."
 if docker ps | grep -q "$QDB_CONTAINER"; then
     docker stop "$QDB_CONTAINER"
     print_status "QuestDB stopped"
@@ -86,20 +59,17 @@ else
 fi
 
 # Summary
-echo ""
-echo "=================================="
-echo "Shutdown Summary"
-echo "=================================="
-echo ""
+echo
+echo "========== Shutdown Summary =========="
+echo
 echo "Storage Services:"
-echo "  Primary:  QuestDB - Stopped"
-echo "  Backup:   MongoDB Atlas - Connection closed"
-echo ""
+echo "  - QuestDB: Stopped"
+echo "  - MongoDB Atlas: Connection closed"
+echo
 echo "Running processes:"
-pgrep -af "streamlit|src/main.py" || print_status "No monitoring processes running"
-echo ""
+pgrep -af "streamlit|src/main.py" | awk '{print "  - " $0}' || print_status "No monitoring processes running"
+echo
 echo "Docker containers:"
-docker ps --filter "name=$QDB_CONTAINER" --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || print_status "No QuestDB container running"
-echo ""
+docker ps --filter "name=$QDB_CONTAINER" --format "  - {{.Names}}: {{.Status}}" | grep . || print_status "No QuestDB container running"
+echo
 print_status "All services stopped!"
-print_info "Data is safely stored in QuestDB and MongoDB Atlas"
