@@ -25,6 +25,8 @@ if [ -n "$1" ]; then
 fi
 
 
+
+# Only run the requested direction and exit immediately after
 if [[ "$DIRECTION" == "down" ]]; then
     eval rsync -avz --progress $SYNC_EXCLUDES "$REMOTE" "$SRC_DIR/"
     STATUS=$?
@@ -34,6 +36,7 @@ if [[ "$DIRECTION" == "down" ]]; then
         echo "✗ Sync failed"
         exit 1
     fi
+    exit 0
 else
     eval rsync -avz --progress $SYNC_EXCLUDES "$SRC_DIR/" "$REMOTE"
     STATUS=$?
@@ -43,24 +46,5 @@ else
         echo "✗ Sync failed"
         exit 1
     fi
-fi
-
-if [[ "$DIRECTION" == "down" ]]; then
-    rsync -avz --progress "${EXCLUDES[@]}" "$REMOTE" "$SRC_DIR/"
-    STATUS=$?
-    if [ $STATUS -eq 0 ]; then
-        echo "✓ Sync complete: $REMOTE → $SRC_DIR"
-    else
-        echo "✗ Sync failed"
-        exit 1
-    fi
-else
-    rsync -avz --progress "${EXCLUDES[@]}" "$SRC_DIR/" "$REMOTE"
-    STATUS=$?
-    if [ $STATUS -eq 0 ]; then
-        echo "✓ Sync complete: $SRC_DIR → $REMOTE"
-    else
-        echo "✗ Sync failed"
-        exit 1
-    fi
+    exit 0
 fi
