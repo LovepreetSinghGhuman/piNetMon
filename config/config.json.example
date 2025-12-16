@@ -91,6 +91,7 @@
       "main": "logs/monitor.log"
     }
   },
+  "pi_ip": "pi_ip",
   "services": {
     "main_app": {
       "script": "src/main.py",
