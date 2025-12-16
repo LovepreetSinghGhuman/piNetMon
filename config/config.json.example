@@ -29,6 +29,10 @@
       "enabled": true,
       "interval_seconds": 30
     },
+    "disk": {
+      "enabled": true,
+      "interval_seconds": 120
+    },
     "network": {
       "enabled": true,
       "interval_seconds": 60
@@ -55,7 +59,6 @@
     "retention_days": 7
   },
   "mongodb": {
-    "enabled": true,
     "connection_string": "mongodb+srv://username:password@samplecluster.mongodb.net/",
     "database": "sample-database",
     "collection": "sample-collection"
@@ -86,6 +89,18 @@
     "files": {
       "dashboard": "logs/dashboard.log",
       "main": "logs/monitor.log"
+    }
+  },
+  "services": {
+    "main_app": {
+      "script": "src/main.py",
+      "process_pattern": "python.*src/main.py",
+      "log": "logs/monitor.log"
+    },
+    "dashboard": {
+      "script": "dashboard/dashboard.py",
+      "process_pattern": "streamlit run.*dashboard.py",
+      "log": "logs/dashboard.log"
     }
   }
 }
