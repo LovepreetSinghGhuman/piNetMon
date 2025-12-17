@@ -27,6 +27,14 @@ Hieronder vind je een overzicht van de architectuur van het systeem:
 
 ## Hoofdcomponenten en Werking
 
+### 1a. Offline werking & automatische synchronisatie
+
+Indien de Raspberry Pi tijdelijk geen wifi- of internetverbinding heeft, blijft het systeem gewoon lokaal data verzamelen en opslaan in QuestDB (en MongoDB indien geconfigureerd). De cloudconnectie (Azure IoT Hub) wordt automatisch hervat zodra de verbinding terug is:
+
+- **Lokale opslag:** Sensor- en netwerkscandata worden altijd lokaal opgeslagen, ongeacht de internetverbinding.
+- **Cloud synchronisatie:** Tijdens een onderbreking worden berichten aan Azure IoT Hub tijdelijk in een wachtrij geplaatst (tot een limiet). Zodra de verbinding hersteld is, worden deze berichten automatisch doorgestuurd naar de cloud.
+- **Databehoud:** Zo gaat er geen lokale data verloren bij tijdelijke netwerkproblemen. Enkel als de wachtrij volloopt, kunnen berichten verloren gaan.
+
 ### 1. Raspberry Pi & Sensoren & Netwerkscan
 
 De Raspberry Pi 4 B draait het hoofdprogramma (`src/main.py`) en verzamelt periodiek data van verschillende sensoren:
@@ -185,5 +193,3 @@ Zie requirements.txt voor een volledig overzicht van alle gebruikte Python-pakke
 - Voor meer details, zie de broncode en config-bestanden.
 
 ---
-
-*Deze documentatie is bedoeld voor de docent als overzicht van de architectuur en werking van het project. Deployment-instructies en diepgaande technische details zijn bewust weggelaten.*
