@@ -22,6 +22,7 @@ class SensorCollector:
             import subprocess
             import re
             devices = []
+            import socket
             try:
                 net = ipaddress.ip_network(subnet, strict=False)
                 for ip in net.hosts():
@@ -44,7 +45,12 @@ class SensorCollector:
                             arp_out = subprocess.run(arp_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                             match = re.search(r"([0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5})", arp_out.stdout.decode())
                             mac = match.group(1) if match else None
-                        devices.append({"ip": ip_str, "mac": mac})
+                        # Try to get hostname
+                        try:
+                            name = socket.gethostbyaddr(ip_str)[0]
+                        except Exception:
+                            name = None
+                        devices.append({"ip": ip_str, "mac": mac, "name": name})
             except Exception as e:
                 logger.error(f"Network scan failed: {e}")
             return devices
