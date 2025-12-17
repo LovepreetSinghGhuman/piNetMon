@@ -27,18 +27,20 @@ Hieronder vind je een overzicht van de architectuur van het systeem:
 
 ## Hoofdcomponenten en Werking
 
-### 1. Raspberry Pi & Sensoren
+### 1. Raspberry Pi & Sensoren & Netwerkscan
 
 De Raspberry Pi 4 B draait het hoofdprogramma (`src/main.py`) en verzamelt periodiek data van verschillende sensoren:
 
 - **CPU-temperatuur, -gebruik, -frequentie**
 - **Geheugen- en schijfgebruik**
 - **Netwerkverkeer**
-De `SensorCollector` module leest deze waarden uit het systeem en structureert ze als JSON.
+- **Netwerkscan: detectie van alle actieve apparaten op het lokale netwerk**
+
+De `SensorCollector` module leest deze waarden uit het systeem en structureert ze als JSON. Voor de netwerkscan wordt het lokale subnet gepingd en worden alle actieve apparaten opgespoord. Per gevonden apparaat worden het IP-adres, MAC-adres en (indien mogelijk) de hostnaam opgeslagen.
 
 ### 2. Lokale Opslag (QuestDB)
 
-De sensordata wordt lokaal opgeslagen in QuestDB, een snelle time-series database. De module `questdb_storage.py` zorgt voor het aanmaken van de juiste tabellen en het wegschrijven van data via HTTP API. Hierdoor kan de data lokaal geanalyseerd en bewaard worden, zelfs zonder internetverbinding.
+De sensordata én de resultaten van de netwerkscan worden lokaal opgeslagen in QuestDB, een snelle time-series database. De module `questdb_storage.py` zorgt voor het aanmaken van de juiste tabellen en het wegschrijven van data via HTTP API. Netwerkscan-data wordt als JSON-blok opgeslagen per scanmoment. Hierdoor kan de data lokaal geanalyseerd en bewaard worden, zelfs zonder internetverbinding.
 
 ### 3. Lokale AI-modellen
 
@@ -55,6 +57,7 @@ Een Azure Function (zie `azure-functions/IoTHubTrigger/`) wordt getriggerd door 
 - Verrijkt en verwerkt de data
 - Voert optioneel cloudgebaseerde AI-analyse uit via een Azure ML Endpoint (`azure-ml/score.py`)
 - Slaat de data op in Azure Blob Storage en/of MongoDB Atlas voor centrale opslag en analyse
+- Uploadt ook de resultaten van de netwerkscan (lijst van gevonden apparaten met IP, MAC en naam) als JSON-bestand naar Azure Blob Storage
 
 ### 6. Cloud AI-model (Azure ML)
 
@@ -71,7 +74,7 @@ Het dashboard (`dashboard/dashboard.py`) biedt:
 
 ### 8. Configuratie
 
-Alle instellingen (sensoren, AI, cloud, opslag) zijn centraal beheerd in `config/config.json`. Dit maakt het systeem flexibel en makkelijk aanpasbaar, zowel lokaal als op afstand via het dashboard of IoT Hub.
+Alle instellingen (sensoren, AI, cloud, opslag, netwerkscan) zijn centraal beheerd in `config/config.json`. Je kan het te scannen subnet en Azure Blob Storage credentials instellen. Dit maakt het systeem flexibel en makkelijk aanpasbaar, zowel lokaal als op afstand via het dashboard of IoT Hub.
 
 ### 9. Bestandsstructuur (Belangrijkste onderdelen)
 
@@ -88,6 +91,8 @@ Alle instellingen (sensoren, AI, cloud, opslag) zijn centraal beheerd in `config
 - ✅ Data wordt lokaal opgeslagen (QuestDB)
 - ✅ Data wordt doorgestuurd naar de cloud (Azure IoT Hub)
 - ✅ Data wordt in de cloud opgeslagen (Azure Blob, MongoDB Atlas)
+- ✅ Netwerkscan: actieve apparaten op het lokale netwerk worden periodiek opgespoord en opgeslagen (IP, MAC, naam)
+- ✅ Resultaten van netwerkscan worden als JSON geüpload naar Azure Blob Storage
 - ✅ Minstens één lokaal AI-model (IsolationForest, ONNX Runtime)
 - ✅ Minstens één AI-model in de cloud (Azure ML Endpoint)
 - ✅ Gebruiker kan interageren met het IoT-device (Streamlit dashboard, device twin)
@@ -99,10 +104,10 @@ Alle instellingen (sensoren, AI, cloud, opslag) zijn centraal beheerd in `config
 
 ## Dataflow en Interactie
 
-1. Sensoren verzamelen data → lokaal verwerkt en opgeslagen (QuestDB)
+1. Sensoren verzamelen data én netwerkscan detecteert actieve apparaten → lokaal verwerkt en opgeslagen (QuestDB)
 2. Lokale AI detecteert anomalieën → resultaten toegevoegd aan data
-3. Data + AI-resultaten worden via Azure IoT Hub naar de cloud gestuurd
-4. Azure Function verwerkt, verrijkt en slaat data op in Azure/MongoDB
+3. Data + AI-resultaten + netwerkscan worden via Azure IoT Hub naar de cloud gestuurd
+4. Azure Function verwerkt, verrijkt en slaat data en netwerkscan-resultaten op in Azure/MongoDB/Blob
 5. Cloud AI-model voert extra analyse uit (optioneel)
 6. Streamlit-dashboard toont alles realtime en laat device management toe
 7. Configuratie kan zowel lokaal als via de cloud aangepast worden
@@ -111,7 +116,7 @@ Alle instellingen (sensoren, AI, cloud, opslag) zijn centraal beheerd in `config
 
 | Component            | Technologie / Service        | Rol / Functie                                               |
 |----------------------|------------------------------|-------------------------------------------------------------|
-| Sensoren             | psutil, Python               | Uitlezen van CPU, geheugen, disk, netwerk, temperatuur      |
+| Sensoren & Netwerkscan| psutil, Python, subprocess, socket | Uitlezen van CPU, geheugen, disk, netwerk, temperatuur, én detectie van actieve apparaten (IP, MAC, naam) |
 | Raspberry Pi         | Raspbian OS, Python 3.11+    | Edge device, draait alle lokale code                        |
 | Lokale opslag        | QuestDB                      | Time-series database voor sensordata                        |
 | Lokale AI            | scikit-learn, ONNX Runtime   | Anomaliedetectie, modeltraining & inferentie                |
@@ -127,6 +132,8 @@ Alle instellingen (sensoren, AI, cloud, opslag) zijn centraal beheerd in `config
 ### Korte toelichting per technologie
 
 - **psutil**: Leest systeemstatistieken uit op de Pi.
+- **subprocess, socket**: Worden gebruikt voor het uitvoeren van de netwerkscan (ping, ARP, reverse DNS/hostname lookup).
+- **Azure Blob Storage**: Slaat ruwe sensordata en netwerkscan-resultaten als JSON-bestanden op in de cloud.
 - **QuestDB**: Snelle opslag en query van tijdsreeksen, lokaal op de Pi.
 - **scikit-learn**: Training van AI-modellen (IsolationForest).
 - **ONNX Runtime**: Snelle inferentie van AI-modellen op edge en cloud.
